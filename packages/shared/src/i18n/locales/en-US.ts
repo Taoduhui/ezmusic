@@ -1,0 +1,141 @@
+const enUS = {
+  app: {
+    title: 'Play Music',
+    subtitle: 'From Listener to Musician',
+  },
+  nav: {
+    menu: 'Contents',
+    prev: 'Previous',
+    next: 'Next',
+    optional: 'Optional',
+    close: 'Close',
+    openMenu: 'Open Menu',
+    chapter: 'Chapter {{index}}',
+  },
+  lang: {
+    zh: '中文',
+    en: 'English',
+    switchLang: 'Switch Language',
+  },
+  noteSolfege: {
+    chapterTitle: 'Note Names vs. Solfège: Fixed Identity & Movable Label',
+    conceptCardNote: 'Note Name',
+    conceptCardNoteDesc: 'Fixed — like a national ID',
+    conceptCardNoteDetail:
+      'Note names (C, D, E…) are absolute pitch identifiers and never change. C4 is always 261.63 Hz.',
+    conceptCardSolfege: 'Solfège',
+    conceptCardSolfegeDesc: 'Movable — like a class role',
+    conceptCardSolfegeDetail:
+      'Solfège syllables (Do, Re, Mi…) are relative scale degrees. The position of Do shifts with the key.',
+    currentKeyFormula: 'Current Key Mapping',
+    keySelector: 'Select Key',
+    fixedDo: 'Fixed Do',
+    fixedDoTooltip:
+      'ON: Do always maps to C (fixed-do system). OFF: Do follows the tonic (movable-do system).',
+    pianoTitle: 'Interactive Keyboard',
+    pianoHint: 'Click a key to hear it and see the note name / solfège relationship.',
+    mappingTableTitle: 'Note Name – Solfège Mapping',
+    mappingColSolfege: 'Solfège',
+    mappingColNote: 'Note',
+    freqChartTitle: 'Frequency Distribution (One Octave)',
+    freqChartHint:
+      'Y-axis is frequency (Hz). Log spacing matches human pitch perception. Click a bar to see the ratio relative to the tonic.',
+    freqChartYAxis: 'Frequency (Hz)',
+    selectedNote: 'Selected Note',
+    noteLabel: 'Note',
+    solfegeLabel: 'Solfège',
+    freqLabel: 'Frequency',
+    intervalLabel: 'Interval',
+    ratioLabel: 'Freq Ratio (approx)',
+    tonicLabel: 'Tonic',
+    tonicBadge: 'Tonic (Do)',
+    inScaleYes: 'In scale',
+    inScaleNo: 'Outside this scale',
+    teachingHintC:
+      'In C major (movable-do), Do is on C — note names and solfège align perfectly.',
+    teachingHintOther:
+      'In {{key}} major (movable-do), Do maps to the tonic {{tonicNote}}. The whole scale shifts together.',
+    teachingHintFixed:
+      'Fixed-Do mode: Do is always locked to C, suited for absolute-pitch learners.',
+  },
+  staffNotation: {
+    chapterTitle: 'Reading Music Notation',
+    chapterSubtitle: 'From symbols to sound: the staff is a 2D map of pitch and duration',
+
+    conceptCardStaff: 'The Staff',
+    conceptCardStaffDesc: 'Five lines, four spaces — a vertical pitch axis',
+    conceptCardStaffDetail:
+      'Five parallel lines and the four spaces between them form the staff. Higher position = higher pitch. The treble clef covers C4 and above; the bass clef covers C4 and below.',
+    conceptCardDuration: 'Note Duration',
+    conceptCardDurationDesc: 'Multiplied relationships, not sequential numbers',
+    conceptCardDurationDetail:
+      'Whole = 2 halves = 4 quarters = 8 eighths. Duration is a halving/doubling relationship, not a numbering sequence.',
+    conceptCardClef: 'Clefs',
+    conceptCardClefDesc: 'Treble clef and bass clef',
+    conceptCardClefDetail:
+      'The treble clef (G clef) is used for higher pitches; its curl wraps around line 2, marking it as G4. The bass clef (F clef) is used for lower pitches; its two dots straddle line 4, marking it as F3.',
+
+    trebleClefTitle: 'Treble Clef (G Clef)',
+    trebleClefDesc: 'Curls around line 2, marking it as G4',
+    trebleMnemonicLines: 'Lines (bottom to top): E G B D F — mnemonic: Every Good Boy Does Fine',
+    trebleMnemonicSpaces: 'Spaces (bottom to top): F A C E — mnemonic: FACE',
+    trebleNotes: 'C4 D4 E4 F4 G4 A4 B4 C5 D5 E5 F5 G5',
+
+    bassClefTitle: 'Bass Clef (F Clef)',
+    bassClefDesc: 'Two dots straddle line 4, marking it as F3',
+    bassMnemonicLines: 'Lines (bottom to top): G B D F A — mnemonic: Good Boys Do Fine Always',
+    bassMnemonicSpaces: 'Spaces (bottom to top): A C E G — mnemonic: All Cows Eat Grass',
+    bassNotes: 'G2 A2 B2 C3 D3 E3 F3 G3 A3 B3 C4',
+
+    noteGuideTitle: 'Interactive Note Guide',
+    noteGuideHint: 'Click a note name to see its position on the staff and hear its pitch',
+    clickToHear: 'Click to hear',
+    selectedNoteOn: '{{note}} on the staff',
+    notePosition: 'Position',
+    noteOnLine: 'Line {{n}}',
+    noteInSpace: 'Space {{n}}',
+    noteLedgerAbove: 'Ledger line +{{n}}',
+    noteLedgerBelow: 'Ledger line -{{n}}',
+
+    durationTitle: 'Note Duration Reference',
+    durationHint: 'Duration doubles/halves: whole = 2 halves = 4 quarters = 8 eighths',
+    durationWhole: 'Whole',
+    durationHalf: 'Half',
+    durationQuarter: 'Quarter',
+    durationEighth: 'Eighth',
+    durationBeats: '{{beats}} beat(s)',
+
+    drillTitle: 'Note Reading Drill',
+    drillSubtitle: 'Anki-style progressive sight-reading practice',
+    drillHint: 'Start with a single octave and gradually expand to full grand-staff reading',
+    whatNote: 'Which note is this?',
+    correct: 'Correct!',
+    wrong: 'Not quite — the answer is',
+    nextQuestion: 'Next',
+    streak: '×{{n}} streak',
+    accuracy: 'Accuracy',
+    masteredBadge: 'Mastered',
+
+    stageTreble1Oct: 'Treble · Single Octave',
+    stageTreble1OctDesc: 'Start from middle C, master 7 notes',
+    stageTreble2Oct: 'Treble · Two Octaves',
+    stageTreble2OctDesc: 'Expand upward to two octaves, 12 notes',
+    stageTrebleFree: 'Treble · Free Practice',
+    stageTrebleFreeDesc: 'Full treble clef working range',
+    stageBassFree: 'Bass · Free Practice',
+    stageBassFreeDesc: 'Full bass clef working range',
+    stageCombined: 'Grand Staff',
+    stageCombinedDesc: 'Mixed clef random questions — final challenge',
+
+    stageProgress: '{{done}} / {{total}} notes mastered',
+    stageComplete: 'All notes in this stage mastered!',
+    stageCompleteAction: 'Start next stage',
+    stageLocked: 'Complete the previous stage to unlock',
+    masteryRequired: '3 consecutive correct answers = mastered',
+    resetProgress: 'Reset Progress',
+    playSequence: 'Play in sequence',
+    durationRatio: 'Duration proportions (click to switch)',
+  },
+};
+
+export default enUS;
