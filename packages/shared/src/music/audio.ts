@@ -2,11 +2,14 @@
  * Tone.js audio hook for the ezmusic shared package.
  * Provides note playback backed by a piano sampler.
  */
-import { useRef, useCallback } from 'react';
+import { useEffect, useCallback } from 'react';
 
 /** Lazily import tone so tree-shaking keeps it out of bundles that don't need it. */
+let tonePromise: Promise<typeof import('tone')> | null = null;
+
 async function getTone() {
-  return import('tone');
+  tonePromise ??= import('tone');
+  return tonePromise;
 }
 
 export interface UseAudioReturn {
@@ -41,22 +44,37 @@ const PIANO_SAMPLE_URLS = {
   'F#5': 'Fs5.mp3',
 } as const;
 
-export function useAudio(): UseAudioReturn {
-  const samplerRef = useRef<import('tone').Sampler | null>(null);
+let samplerPromise: Promise<import('tone').Sampler> | null = null;
 
+async function loadSampler() {
+  const Tone = await getTone();
+  if (!samplerPromise) {
+    const sampler = new Tone.Sampler({
+      urls: PIANO_SAMPLE_URLS,
+      baseUrl: 'https://tonejs.github.io/audio/salamander/',
+      release: 1.4,
+      volume: -3,
+    }).toDestination();
+
+    samplerPromise = Tone.loaded().then(() => sampler).catch((error) => {
+      samplerPromise = null;
+      throw error;
+    });
+  }
+
+  return samplerPromise;
+}
+
+export function useAudio(): UseAudioReturn {
   const ensureSampler = useCallback(async () => {
     const Tone = await getTone();
+    const sampler = await loadSampler();
     await Tone.start();
-    if (!samplerRef.current) {
-      samplerRef.current = new Tone.Sampler({
-        urls: PIANO_SAMPLE_URLS,
-        baseUrl: 'https://tonejs.github.io/audio/salamander/',
-        release: 1.4,
-        volume: -3,
-      }).toDestination();
-      await Tone.loaded();
-    }
-    return samplerRef.current;
+    return sampler;
+  }, []);
+
+  useEffect(() => {
+    void loadSampler();
   }, []);
 
   const playFreq = useCallback(
