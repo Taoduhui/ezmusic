@@ -1,4 +1,4 @@
-import { useState, ReactNode, useCallback } from 'react';
+import { useState, ReactNode, useCallback, useEffect } from 'react';
 import {
   Layout,
   Menu,
@@ -47,7 +47,20 @@ export default function Articles({ pages, defaultCurrent = 0 }: ArticlesProps) {
 
   const [currentIdx, setCurrentIdx] = useState(defaultCurrent);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [locale, setLocale] = useState<SupportedLocale>('zh-CN');
+  const [locale, setLocale] = useState<SupportedLocale>(
+    (i18n.resolvedLanguage as SupportedLocale) ?? 'zh-CN',
+  );
+
+  useEffect(() => {
+    const handleLanguageChanged = (value: string) => {
+      setLocale((value as SupportedLocale) ?? 'zh-CN');
+    };
+
+    i18n.on('languageChanged', handleLanguageChanged);
+    return () => {
+      i18n.off('languageChanged', handleLanguageChanged);
+    };
+  }, []);
 
   const handleLocaleChange = useCallback((val: SupportedLocale) => {
     setLocale(val);

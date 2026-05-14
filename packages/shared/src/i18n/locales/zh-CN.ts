@@ -18,6 +18,7 @@ const zhCN = {
     switchLang: '切换语言',
   },
   noteSolfege: {
+    menuTitle: '音名与唱名',
     chapterTitle: '音名与唱名：固定身份与可移动称呼',
     conceptCardNote: '音名',
     conceptCardNoteDesc: '固定，像身份证号',
@@ -54,6 +55,7 @@ const zhCN = {
       '固定 Do 模式：Do 始终锁定在 C 键，适合有绝对音感或视唱练耳的学习者。',
   },
   staffNotation: {
+    menuTitle: '认识五线谱',
     chapterTitle: '认识五线谱',
     chapterSubtitle: '从符号到音乐：五线谱是音高与时值的二维地图',
 

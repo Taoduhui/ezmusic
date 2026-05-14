@@ -18,6 +18,7 @@ const enUS = {
     switchLang: 'Switch Language',
   },
   noteSolfege: {
+    menuTitle: 'Note Names and Solfege',
     chapterTitle: 'Note Names vs. Solfège: Fixed Identity & Movable Label',
     conceptCardNote: 'Note Name',
     conceptCardNoteDesc: 'Fixed — like a national ID',
@@ -59,6 +60,7 @@ const enUS = {
       'Fixed-Do mode: Do is always locked to C, suited for absolute-pitch learners.',
   },
   staffNotation: {
+    menuTitle: 'Reading Music Notation',
     chapterTitle: 'Reading Music Notation',
     chapterSubtitle: 'From symbols to sound: the staff is a 2D map of pitch and duration',
 

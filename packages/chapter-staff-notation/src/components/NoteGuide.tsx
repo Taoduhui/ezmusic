@@ -58,10 +58,19 @@ export default function NoteGuide({
   return (
     <Card
       title={
-        <Space>
+        <Space wrap size={[8, 8]}>
           <span style={{ fontSize: 18 }}>🎵</span>
           <span style={{ fontWeight: 600 }}>{title}</span>
-          <Tag color="purple">{description}</Tag>
+          <Tag
+            color="purple"
+            style={{
+              whiteSpace: 'normal',
+              lineHeight: 1.4,
+              paddingBlock: 4,
+            }}
+          >
+            {description}
+          </Tag>
         </Space>
       }
       style={{ marginBottom: 24 }}

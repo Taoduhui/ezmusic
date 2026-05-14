@@ -42,7 +42,16 @@ function ConceptCard({ emoji, title, subtitle, body, color }: ConceptCardProps) 
           <span style={{ fontWeight: 700, fontSize: 16 }}>{title}</span>
         </Space>
         <div>
-          <Tag color={color}>{subtitle}</Tag>
+          <Tag
+            color={color}
+            style={{
+              whiteSpace: 'normal',
+              lineHeight: 1.4,
+              paddingBlock: 4,
+            }}
+          >
+            {subtitle}
+          </Tag>
         </div>
       </div>
       <Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 0 }}>

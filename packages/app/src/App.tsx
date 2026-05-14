@@ -15,7 +15,7 @@ const antdLocaleMap: Record<string, typeof zhCN> = {
 };
 
 export default function App() {
-  const { i18n } = useTranslation();
+  const { i18n, t } = useTranslation();
   const [antdLocale, setAntdLocale] = useState(zhCN);
 
   useEffect(() => {
@@ -30,11 +30,11 @@ export default function App() {
 
   const pages = [
     {
-      title: '音名与唱名',
+      title: t('noteSolfege.menuTitle'),
       page: () => <ChapterNoteSolfege />,
     },
     {
-      title: '认识五线谱',
+      title: t('staffNotation.menuTitle'),
       page: () => <ChapterStaffNotation />,
     },
   ];

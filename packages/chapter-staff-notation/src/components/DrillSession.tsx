@@ -40,6 +40,14 @@ const { useBreakpoint } = Grid;
 
 const STORAGE_KEY = 'ezmusic-staff-drill-progress';
 const MASTERY_STREAK = 3;
+const NOTE_PLAY_DURATION = 0.8;
+const ANSWER_FEEDBACK_DELAY_MS = NOTE_PLAY_DURATION * 1000 + 150;
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -291,6 +299,27 @@ export default function DrillSession() {
     [pool, store.noteProgress],
   );
 
+  const replayCurrentNote = useCallback(() => {
+    if (!currentNote) return;
+    void playNote(currentNote, NOTE_PLAY_DURATION);
+  }, [currentNote, playNote]);
+
+  const playAnswerFeedback = useCallback(
+    (answer: string, expected: string) => {
+      void (async () => {
+        if (answer === expected) {
+          await playNote(expected, NOTE_PLAY_DURATION);
+          return;
+        }
+
+        await playNote(answer, NOTE_PLAY_DURATION);
+        await wait(ANSWER_FEEDBACK_DELAY_MS);
+        await playNote(expected, NOTE_PLAY_DURATION);
+      })();
+    },
+    [playNote],
+  );
+
   // Persist store whenever it changes
   useEffect(() => { saveProgress(store); }, [store]);
 
@@ -302,7 +331,7 @@ export default function DrillSession() {
       setCurrentNote(note);
       setChoices(shuffleArray([note, ...distractors]));
       setChosen(null);
-      playNote(note, 0.8);
+      void playNote(note, NOTE_PLAY_DURATION);
     },
     [pool, store.noteProgress, playNote],
   );
@@ -319,7 +348,7 @@ export default function DrillSession() {
         const distractors = getDrillDistractors(note, DRILL_STAGE_NOTES[s]);
         setCurrentNote(note);
         setChoices(shuffleArray([note, ...distractors]));
-        playNote(note, 0.8);
+        void playNote(note, NOTE_PLAY_DURATION);
       }, 0);
     },
     [store.noteProgress, playNote],
@@ -341,6 +370,7 @@ export default function DrillSession() {
       setSessionTotal((n) => n + 1);
 
       const isCorrect = answer === currentNote;
+      playAnswerFeedback(answer, currentNote);
 
       setStore((prev) => {
         const existing = prev.noteProgress[currentNote] ?? {
@@ -384,7 +414,7 @@ export default function DrillSession() {
         setStreak(0);
       }
     },
-    [currentNote, chosen, pool, stage],
+    [currentNote, chosen, pool, stage, playAnswerFeedback],
   );
 
   const handleNext = useCallback(() => {
@@ -427,7 +457,6 @@ export default function DrillSession() {
         <Space>
           <span style={{ fontSize: 18 }}>🎓</span>
           <span style={{ fontWeight: 600 }}>{t('staffNotation.drillTitle')}</span>
-          <Tag color="purple">{t('staffNotation.drillSubtitle')}</Tag>
         </Space>
       }
       style={{ marginBottom: 24 }}
@@ -501,6 +530,15 @@ export default function DrillSession() {
         {/* Staff display + answer area */}
         <Col xs={24} md={14}>
           <div
+            role="button"
+            tabIndex={currentNote ? 0 : -1}
+            onClick={replayCurrentNote}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                replayCurrentNote();
+              }
+            }}
             style={{
               background: '#fafafa',
               border: '1px solid #f0f0f0',
@@ -513,6 +551,7 @@ export default function DrillSession() {
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
+              cursor: currentNote ? 'pointer' : 'default',
             }}
           >
             <Text type="secondary" style={{ fontSize: 13, marginBottom: 8 }}>
