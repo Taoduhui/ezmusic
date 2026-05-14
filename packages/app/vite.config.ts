@@ -1,8 +1,8 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-const repositoryParts = process.env.GITHUB_REPOSITORY?.split('/');
-const repositoryName = repositoryParts?.length === 2 ? repositoryParts[1] : undefined;
+const repositoryParts = (process.env.GITHUB_REPOSITORY ?? '').split('/');
+const repositoryName = repositoryParts.length === 2 ? repositoryParts[1] : undefined;
 const githubPagesBase = repositoryName ? `/${repositoryName}/` : '/';
 
 export default defineConfig({
