@@ -1,6 +1,6 @@
 /**
  * Tone.js audio hook for the ezmusic shared package.
- * Provides a simple playNote function backed by a PolySynth.
+ * Provides note playback backed by a piano sampler.
  */
 import { useRef, useCallback } from 'react';
 
@@ -21,36 +21,58 @@ export interface UseAudioReturn {
   playNote: (note: string, duration?: number) => Promise<void>;
 }
 
-export function useAudio(): UseAudioReturn {
-  const synthRef = useRef<import('tone').PolySynth | null>(null);
+const PIANO_SAMPLE_URLS = {
+  A1: 'A1.mp3',
+  A2: 'A2.mp3',
+  A3: 'A3.mp3',
+  A4: 'A4.mp3',
+  C2: 'C2.mp3',
+  C3: 'C3.mp3',
+  C4: 'C4.mp3',
+  C5: 'C5.mp3',
+  C6: 'C6.mp3',
+  'D#2': 'Ds2.mp3',
+  'D#3': 'Ds3.mp3',
+  'D#4': 'Ds4.mp3',
+  'D#5': 'Ds5.mp3',
+  'F#2': 'Fs2.mp3',
+  'F#3': 'Fs3.mp3',
+  'F#4': 'Fs4.mp3',
+  'F#5': 'Fs5.mp3',
+} as const;
 
-  const ensureSynth = useCallback(async () => {
+export function useAudio(): UseAudioReturn {
+  const samplerRef = useRef<import('tone').Sampler | null>(null);
+
+  const ensureSampler = useCallback(async () => {
     const Tone = await getTone();
     await Tone.start();
-    if (!synthRef.current) {
-      synthRef.current = new Tone.PolySynth(Tone.Synth, {
-        oscillator: { type: 'triangle' },
-        envelope: { attack: 0.02, decay: 0.1, sustain: 0.5, release: 1.0 },
-        volume: -6,
+    if (!samplerRef.current) {
+      samplerRef.current = new Tone.Sampler({
+        urls: PIANO_SAMPLE_URLS,
+        baseUrl: 'https://tonejs.github.io/audio/salamander/',
+        release: 1.4,
+        volume: -3,
       }).toDestination();
+      await Tone.loaded();
     }
-    return synthRef.current;
+    return samplerRef.current;
   }, []);
 
   const playFreq = useCallback(
     async (freq: number, duration = 1.0) => {
-      const synth = await ensureSynth();
-      synth.triggerAttackRelease(freq, duration);
+      const sampler = await ensureSampler();
+      sampler.triggerAttackRelease(freq, duration);
     },
-    [ensureSynth],
+    [ensureSampler],
   );
 
   const playNote = useCallback(
     async (note: string, duration = 1.0) => {
-      const synth = await ensureSynth();
-      synth.triggerAttackRelease(note, duration);
+      const sampler = await ensureSampler();
+      sampler.triggerAttackRelease(note, duration);
     },
-    [ensureSynth],
+    [ensureSampler],
   );
 
   return { playFreq, playNote };
