@@ -44,6 +44,14 @@ const PIANO_SAMPLE_URLS = {
   'F#5': 'Fs5.mp3',
 } as const;
 
+function getLocalSampleBaseUrl() {
+  if (typeof document === 'undefined') {
+    return '/audio/salamander/';
+  }
+
+  return new URL('audio/salamander/', document.baseURI).toString();
+}
+
 let samplerPromise: Promise<import('tone').Sampler> | null = null;
 
 async function loadSampler() {
@@ -51,7 +59,7 @@ async function loadSampler() {
   if (!samplerPromise) {
     const sampler = new Tone.Sampler({
       urls: PIANO_SAMPLE_URLS,
-      baseUrl: 'https://tonejs.github.io/audio/salamander/',
+      baseUrl: getLocalSampleBaseUrl(),
       release: 1.4,
       volume: -3,
     }).toDestination();

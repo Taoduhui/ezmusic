@@ -9,6 +9,7 @@ export interface StaffDisplayProps {
   /** Scientific pitch name(s) to display, e.g. 'C4' or ['C4','E4','G4'] */
   notes: string | string[];
   clef: 'treble' | 'bass';
+  noteDuration?: 'w' | 'h' | 'q';
   /** Note that should be drawn in the accent color (must be one of `notes`) */
   highlightNote?: string;
   /** Accent color for the highlighted note */
@@ -27,6 +28,7 @@ function toEasyScore(note: string, duration = 'w'): string {
 export default function StaffDisplay({
   notes,
   clef,
+  noteDuration = 'w',
   highlightNote,
   accentColor = '#7c3aed',
   noteColor = '#2c2c2c',
@@ -57,7 +59,7 @@ export default function StaffDisplay({
       const system = vf.System({ x: 10, y: yOffset, width: width - 20 });
 
       const staveNotes = score.notes(
-        noteArray.map((n) => toEasyScore(n)).join(', '),
+        noteArray.map((n) => toEasyScore(n, noteDuration)).join(', '),
         { clef },
       );
 
@@ -81,7 +83,7 @@ export default function StaffDisplay({
     } catch {
       // Silently ignore VexFlow render errors (e.g. during hot reload)
     }
-  }, [notes, clef, highlightNote, accentColor, noteColor, width, height, vfId]);
+  }, [notes, clef, noteDuration, highlightNote, accentColor, noteColor, width, height, vfId]);
 
   return <div ref={containerRef} style={{ lineHeight: 0, minHeight: height }} />;
 }

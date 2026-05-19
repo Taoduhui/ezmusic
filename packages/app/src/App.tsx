@@ -30,10 +30,12 @@ export default function App() {
 
   const pages = [
     {
+      path: '/note-solfege',
       title: t('noteSolfege.menuTitle'),
       page: () => <ChapterNoteSolfege />,
     },
     {
+      path: '/staff-notation',
       title: t('staffNotation.menuTitle'),
       page: () => <ChapterStaffNotation />,
     },

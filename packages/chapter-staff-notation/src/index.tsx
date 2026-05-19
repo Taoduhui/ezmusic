@@ -2,7 +2,7 @@
  * Chapter: Reading Music Notation (认识五线谱)
  * Shows concept cards, treble/bass clef guides, duration visual, and the Anki-like drill.
  */
-import { Typography, Card, Row, Col, Space, Tag } from 'antd';
+import { Typography, Card, Row, Col, Space, Tag, Grid } from 'antd';
 import { useTranslation } from 'react-i18next';
 import {
   TREBLE_2OCT_NOTES,
@@ -12,8 +12,10 @@ import {
 import NoteGuide from './components/NoteGuide';
 import DurationVisual from './components/DurationVisual';
 import DrillSession from './components/DrillSession';
+import IntervalDrill from './components/IntervalDrill';
 
 const { Title, Paragraph } = Typography;
+const { useBreakpoint } = Grid;
 
 // ---------------------------------------------------------------------------
 // Concept card helper
@@ -67,12 +69,14 @@ function ConceptCard({ emoji, title, subtitle, body, color }: ConceptCardProps) 
 
 export default function ChapterStaffNotation() {
   const { t } = useTranslation();
+  const screens = useBreakpoint();
+  const isDesktop = !!screens.md;
 
   const trebleNotes = (TREBLE_2OCT_NOTES as readonly string[]).slice();
   const bassNotes   = (BASS_FREE_NOTES as readonly string[]).slice();
 
   return (
-    <div style={{ maxWidth: 960, margin: '0 auto', padding: '0 16px 48px' }}>
+    <div style={{ maxWidth: 960, margin: '0 auto', padding: isDesktop ? '0 16px 48px' : '0 0 48px' }}>
       {/* ── Hero banner ── */}
       <div
         style={{
@@ -147,6 +151,9 @@ export default function ChapterStaffNotation() {
 
       {/* ── Drill session ── */}
       <DrillSession />
+
+      {/* ── Interval drill ── */}
+      <IntervalDrill />
     </div>
   );
 }

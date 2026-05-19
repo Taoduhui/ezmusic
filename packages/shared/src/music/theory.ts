@@ -250,12 +250,20 @@ export function intervalFromTonicEn(key: string, pitchClass: string): string {
 // ---------------------------------------------------------------------------
 
 /** Natural notes used in each drill stage, ordered low to high */
-export const TREBLE_1OCT_NOTES = ['C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'B4'] as const;
+export const TREBLE_C4_NOTES = ['C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'B4'] as const;
+
+export const TREBLE_C5_NOTES = ['C5', 'D5', 'E5', 'F5', 'G5', 'A5', 'B5'] as const;
 
 export const TREBLE_2OCT_NOTES = [
-  'C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'B4',
-  'C5', 'D5', 'E5', 'F5', 'G5',
+  ...TREBLE_C4_NOTES,
+  ...TREBLE_C5_NOTES,
 ] as const;
+
+export const BASS_C1_NOTES = ['C1', 'D1', 'E1', 'F1', 'G1', 'A1', 'B1'] as const;
+
+export const BASS_C2_NOTES = ['C2', 'D2', 'E2', 'F2', 'G2', 'A2', 'B2'] as const;
+
+export const COMBINED_C3_NOTES = ['C3', 'D3', 'E3', 'F3', 'G3', 'A3', 'B3'] as const;
 
 export const TREBLE_FREE_NOTES = [
   'A3', 'B3',
@@ -264,49 +272,54 @@ export const TREBLE_FREE_NOTES = [
 ] as const;
 
 export const BASS_FREE_NOTES = [
-  'G2', 'A2', 'B2',
-  'C3', 'D3', 'E3', 'F3', 'G3', 'A3',
-  'B3', 'C4',
+  ...BASS_C1_NOTES,
+  ...BASS_C2_NOTES,
+  ...COMBINED_C3_NOTES,
+  'C4',
 ] as const;
 
 export const COMBINED_FREE_NOTES = [
-  'G2', 'A2', 'B2', 'C3', 'D3', 'E3', 'F3', 'G3', 'A3', 'B3',
+  ...BASS_C1_NOTES,
+  ...BASS_C2_NOTES,
+  ...COMBINED_C3_NOTES,
   'C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'B4',
   'C5', 'D5', 'E5', 'F5', 'G5', 'A5',
 ] as const;
 
 /** Identifiers for each progressive drill stage */
 export type DrillStage =
-  | 'treble-1oct'
-  | 'treble-2oct'
-  | 'treble-free'
-  | 'bass-free'
-  | 'combined';
+  | 'treble-c4'
+  | 'treble-c5'
+  | 'treble-c4c5'
+  | 'bass-c1'
+  | 'bass-c2'
+  | 'combined-c3';
 
 /** Ordered sequence of stages from beginner to advanced */
 export const DRILL_STAGE_ORDER: DrillStage[] = [
-  'treble-1oct',
-  'treble-2oct',
-  'treble-free',
-  'bass-free',
-  'combined',
+  'treble-c4',
+  'treble-c5',
+  'treble-c4c5',
+  'bass-c1',
+  'bass-c2',
+  'combined-c3',
 ];
 
 /** Note pool for each stage */
 export const DRILL_STAGE_NOTES: Record<DrillStage, readonly string[]> = {
-  'treble-1oct': TREBLE_1OCT_NOTES,
-  'treble-2oct': TREBLE_2OCT_NOTES,
-  'treble-free': TREBLE_FREE_NOTES,
-  'bass-free': BASS_FREE_NOTES,
-  'combined': COMBINED_FREE_NOTES,
+  'treble-c4': TREBLE_C4_NOTES,
+  'treble-c5': TREBLE_C5_NOTES,
+  'treble-c4c5': TREBLE_2OCT_NOTES,
+  'bass-c1': BASS_C1_NOTES,
+  'bass-c2': BASS_C2_NOTES,
+  'combined-c3': COMBINED_C3_NOTES,
 };
 
 /** Which clef to use for a given note in a given stage */
 export function getClefForNote(note: string, stage: DrillStage): 'treble' | 'bass' {
-  if (stage === 'bass-free') return 'bass';
-  if (stage === 'combined') {
-    const octave = parseInt(note.slice(-1), 10);
-    return octave < 4 ? 'bass' : 'treble';
+  if (stage === 'bass-c1' || stage === 'bass-c2') return 'bass';
+  if (stage === 'combined-c3') {
+    return ['G3', 'A3', 'B3'].includes(note) ? 'treble' : 'bass';
   }
   return 'treble';
 }

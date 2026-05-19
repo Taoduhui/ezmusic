@@ -2,11 +2,12 @@
  * DrillSession — Anki-like progressive staff note reading drill.
  *
  * Stages:
- *   1. Treble · Single octave (C4–B4, 7 notes) — must master all to unlock next
- *   2. Treble · Two octaves  (C4–G5, 12 notes) — must master all to unlock next
- *   3. Treble · Free practice (extended treble range)
- *   4. Bass   · Free practice (bass clef range)
- *   5. Grand staff (combined treble + bass)
+ *   1. Treble · C4 octave  (C4–B4, 7 notes) — must master all to unlock next
+ *   2. Treble · C5 octave  (C5–B5, 7 notes) — must master all to unlock next
+ *   3. Treble · C4 + C5   (C4–B5, 14 notes) — must master all to unlock next
+ *   4. Bass   · C1 octave (C1–B1, 7 notes) — must master all to unlock next
+ *   5. Bass   · C2 octave (C2–B2, 7 notes) — must master all to unlock next
+ *   6. Grand staff · C3   (C3–B3, 7 notes across bass/treble clefs)
  *
  * Mastery rule: 3 consecutive correct answers per note.
  * Progress is persisted to localStorage.
@@ -58,9 +59,20 @@ interface DrillProgressStore {
   noteProgress: Record<string, NoteProgress>;
 }
 
+function normalizeUnlockedStages(stages: unknown): DrillStage[] {
+  const valid = Array.isArray(stages)
+    ? stages.filter((stage): stage is DrillStage => DRILL_STAGE_ORDER.includes(stage as DrillStage))
+    : [];
+
+  const ordered = DRILL_STAGE_ORDER.filter((stage) => valid.includes(stage));
+  return ordered.length > 0 && ordered[0] === DRILL_STAGE_ORDER[0]
+    ? ordered
+    : [DRILL_STAGE_ORDER[0], ...ordered];
+}
+
 function emptyProgress(): DrillProgressStore {
   return {
-    unlockedStages: ['treble-1oct'],
+    unlockedStages: [DRILL_STAGE_ORDER[0]],
     noteProgress: {},
   };
 }
@@ -68,7 +80,13 @@ function emptyProgress(): DrillProgressStore {
 function loadProgress(): DrillProgressStore {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as DrillProgressStore;
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<DrillProgressStore>;
+      return {
+        unlockedStages: normalizeUnlockedStages(parsed.unlockedStages),
+        noteProgress: parsed.noteProgress ?? {},
+      };
+    }
   } catch { /* ignore */ }
   return emptyProgress();
 }
@@ -91,11 +109,12 @@ interface StageInfo {
 }
 
 const STAGE_INFO: StageInfo[] = [
-  { id: 'treble-1oct',  titleKey: 'staffNotation.stageTreble1Oct',  descKey: 'staffNotation.stageTreble1OctDesc',  color: '#7c3aed' },
-  { id: 'treble-2oct',  titleKey: 'staffNotation.stageTreble2Oct',  descKey: 'staffNotation.stageTreble2OctDesc',  color: '#2563eb' },
-  { id: 'treble-free',  titleKey: 'staffNotation.stageTrebleFree',  descKey: 'staffNotation.stageTrebleFreeDesc',  color: '#059669' },
-  { id: 'bass-free',    titleKey: 'staffNotation.stageBassFree',    descKey: 'staffNotation.stageBassFreeDesc',    color: '#d97706' },
-  { id: 'combined',     titleKey: 'staffNotation.stageCombined',    descKey: 'staffNotation.stageCombinedDesc',    color: '#dc2626' },
+  { id: 'treble-c4',    titleKey: 'staffNotation.stageTrebleC4',    descKey: 'staffNotation.stageTrebleC4Desc',    color: '#7c3aed' },
+  { id: 'treble-c5',    titleKey: 'staffNotation.stageTrebleC5',    descKey: 'staffNotation.stageTrebleC5Desc',    color: '#2563eb' },
+  { id: 'treble-c4c5',  titleKey: 'staffNotation.stageTrebleC4C5',  descKey: 'staffNotation.stageTrebleC4C5Desc',  color: '#059669' },
+  { id: 'bass-c1',      titleKey: 'staffNotation.stageBassC1',      descKey: 'staffNotation.stageBassC1Desc',      color: '#d97706' },
+  { id: 'bass-c2',      titleKey: 'staffNotation.stageBassC2',      descKey: 'staffNotation.stageBassC2Desc',      color: '#ea580c' },
+  { id: 'combined-c3',  titleKey: 'staffNotation.stageCombinedC3',  descKey: 'staffNotation.stageCombinedC3Desc',  color: '#dc2626' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -281,7 +300,7 @@ export default function DrillSession() {
   const { playNote } = useAudio();
 
   const [store, setStore] = useState<DrillProgressStore>(loadProgress);
-  const [stage, setStage] = useState<DrillStage>('treble-1oct');
+  const [stage, setStage] = useState<DrillStage>(DRILL_STAGE_ORDER[0]);
   const [currentNote, setCurrentNote] = useState<string | null>(null);
   const [choices, setChoices] = useState<string[]>([]);
   const [chosen, setChosen] = useState<string | null>(null);
@@ -396,8 +415,7 @@ export default function DrillSession() {
         const shouldUnlock =
           stageNowComplete &&
           nextStage &&
-          !prev.unlockedStages.includes(nextStage) &&
-          ['treble-1oct', 'treble-2oct'].includes(stage);
+          !prev.unlockedStages.includes(nextStage);
 
         return {
           unlockedStages: shouldUnlock

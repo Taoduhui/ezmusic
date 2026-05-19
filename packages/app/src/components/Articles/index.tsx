@@ -1,4 +1,4 @@
-import { useState, ReactNode, useCallback, useEffect } from 'react';
+import { useState, ReactNode, useCallback, useEffect, useMemo } from 'react';
 import {
   Layout,
   Menu,
@@ -19,6 +19,7 @@ import {
   SoundOutlined,
   CloseOutlined,
 } from '@ant-design/icons';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { supportedLocales, i18n } from '@ezmusic/shared';
 import type { SupportedLocale } from '@ezmusic/shared';
@@ -28,6 +29,7 @@ const { useBreakpoint } = Grid;
 const { Text } = Typography;
 
 export interface PageConfig {
+  path: string;
   title: string;
   optional?: boolean;
   page: () => ReactNode;
@@ -44,12 +46,23 @@ export default function Articles({ pages, defaultCurrent = 0 }: ArticlesProps) {
   const { t } = useTranslation();
   const screens = useBreakpoint();
   const isDesktop = !!screens.lg;
+  const location = useLocation();
+  const routerNavigate = useNavigate();
 
-  const [currentIdx, setCurrentIdx] = useState(defaultCurrent);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [locale, setLocale] = useState<SupportedLocale>(
     (i18n.resolvedLanguage as SupportedLocale) ?? 'zh-CN',
   );
+
+  const currentIdx = useMemo(() => {
+    const pathname = location.pathname !== '/' && location.pathname.endsWith('/')
+      ? location.pathname.slice(0, -1)
+      : location.pathname;
+
+    return pages.findIndex((page) => page.path === pathname);
+  }, [location.pathname, pages]);
+
+  const resolvedCurrentIdx = currentIdx >= 0 ? currentIdx : defaultCurrent;
 
   useEffect(() => {
     const handleLanguageChanged = (value: string) => {
@@ -67,24 +80,35 @@ export default function Articles({ pages, defaultCurrent = 0 }: ArticlesProps) {
     i18n.changeLanguage(val);
   }, []);
 
-  const navigate = useCallback((idx: number) => {
-    setCurrentIdx(idx);
+  useEffect(() => {
+    if (currentIdx >= 0 || !pages[defaultCurrent]) {
+      return;
+    }
+
+    routerNavigate(pages[defaultCurrent].path, { replace: true });
+  }, [currentIdx, defaultCurrent, pages, routerNavigate]);
+
+  const goToPage = useCallback((idx: number) => {
+    const target = pages[idx];
+    if (!target) return;
+
+    routerNavigate(target.path);
     setDrawerOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, []);
+  }, [pages, routerNavigate]);
 
-  const hasPrev = currentIdx > 0;
-  const hasNext = currentIdx < pages.length - 1;
-  const currentPage = pages[currentIdx];
+  const hasPrev = resolvedCurrentIdx > 0;
+  const hasNext = resolvedCurrentIdx < pages.length - 1;
+  const currentPage = pages[resolvedCurrentIdx];
 
   const menuItems = pages.map((p, idx) => ({
-    key: String(idx),
+    key: p.path,
     label: (
       <Space style={{ justifyContent: 'space-between', width: '100%' }}>
         <Text
           style={{
-            color: idx === currentIdx ? '#7c3aed' : undefined,
-            fontWeight: idx === currentIdx ? 600 : 400,
+            color: idx === resolvedCurrentIdx ? '#7c3aed' : undefined,
+            fontWeight: idx === resolvedCurrentIdx ? 600 : 400,
             fontSize: 14,
             lineHeight: 1.5,
             whiteSpace: 'normal',
@@ -159,9 +183,12 @@ export default function Articles({ pages, defaultCurrent = 0 }: ArticlesProps) {
       <div style={{ flex: 1, overflowY: 'auto' }}>
         <Menu
           mode="inline"
-          selectedKeys={[String(currentIdx)]}
+          selectedKeys={[currentPage.path]}
           items={menuItems}
-          onSelect={({ key }) => navigate(Number(key))}
+          onSelect={({ key }) => {
+            const idx = pages.findIndex((page) => page.path === key);
+            if (idx >= 0) goToPage(idx);
+          }}
           style={{ border: 'none', background: 'transparent' }}
         />
       </div>
@@ -284,13 +311,13 @@ export default function Articles({ pages, defaultCurrent = 0 }: ArticlesProps) {
             style={{
               maxWidth: 960,
               margin: '0 auto',
-              padding: isDesktop ? '48px 48px 80px' : '24px 20px 80px',
+              padding: isDesktop ? '48px 48px 80px' : '24px 0 80px',
             }}
           >
             {/* Chapter label */}
             <div style={{ marginBottom: 8 }}>
               <Text type="secondary" style={{ fontSize: 12 }}>
-                {t('nav.chapter', { index: currentIdx + 1 })}
+                {t('nav.chapter', { index: resolvedCurrentIdx + 1 })}
                 {currentPage.optional && (
                   <Tag color="purple" style={{ marginLeft: 8, fontSize: 11 }}>
                     {t('nav.optional')}
@@ -300,7 +327,7 @@ export default function Articles({ pages, defaultCurrent = 0 }: ArticlesProps) {
             </div>
 
             {/* Page content */}
-            <div key={currentIdx} style={{ animation: 'fadeIn 0.25s ease' }}>
+            <div key={currentPage.path} style={{ animation: 'fadeIn 0.25s ease' }}>
               {currentPage.page()}
             </div>
 
@@ -320,21 +347,21 @@ export default function Articles({ pages, defaultCurrent = 0 }: ArticlesProps) {
               <Button
                 size="large"
                 icon={<LeftOutlined />}
-                onClick={() => navigate(currentIdx - 1)}
+                onClick={() => goToPage(resolvedCurrentIdx - 1)}
                 disabled={!hasPrev}
                 style={{ borderRadius: 8 }}
               >
                 {t('nav.prev')}
               </Button>
               <Text type="secondary" style={{ fontSize: 13 }}>
-                {currentIdx + 1} / {pages.length}
+                {resolvedCurrentIdx + 1} / {pages.length}
               </Text>
               <Button
                 type="primary"
                 size="large"
                 icon={<RightOutlined />}
                 iconPosition="end"
-                onClick={() => navigate(currentIdx + 1)}
+                onClick={() => goToPage(resolvedCurrentIdx + 1)}
                 disabled={!hasNext}
                 style={{ borderRadius: 8, background: '#7c3aed', borderColor: '#7c3aed' }}
               >
