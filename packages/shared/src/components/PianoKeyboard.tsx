@@ -213,7 +213,7 @@ export default function PianoKeyboard({
             : k.pitchClass;
 
           return (
-            <Tooltip key={k.note} title={tooltip} placement="bottom">
+            <Tooltip key={k.note} title={tooltip} placement="bottom" open={showNoteLabels ? undefined : false}>
               <div
                 onMouseDown={() => {
                   if (!disabled) onKeyPress(k.pitchClass, k.note);
@@ -283,7 +283,7 @@ export default function PianoKeyboard({
             : k.pitchClass;
 
           return (
-            <Tooltip key={k.note} title={tooltip} placement="top">
+            <Tooltip key={k.note} title={tooltip} placement="top" open={showNoteLabels ? undefined : false}>
               <div
                 onMouseDown={() => {
                   if (!disabled) onKeyPress(k.pitchClass, k.note);
