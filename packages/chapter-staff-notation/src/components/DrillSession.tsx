@@ -17,7 +17,7 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   Card, Button, Space, Typography, Progress, Tag, Badge,
-  Divider, Row, Col, Tooltip, Popconfirm, Grid, Select,
+  Divider, Row, Col, Tooltip, Popconfirm, Grid, Select, Switch,
 } from 'antd';
 import {
   CheckOutlined, CloseOutlined, ReloadOutlined,
@@ -297,6 +297,7 @@ export default function DrillSession() {
   const [store, setStore] = useState<DrillProgressStore>(loadProgress);
   const [stage, setStage] = useState<DrillStage>(DRILL_STAGE_ORDER[0]);
   const [drillMode, setDrillMode] = useState<DrillMode>('note-name');
+  const [showKeyboardLabels, setShowKeyboardLabels] = useState(true);
   const [currentNote, setCurrentNote] = useState<string | null>(null);
   const [choices, setChoices] = useState<string[]>([]);
   const [chosen, setChosen] = useState<string | null>(null);
@@ -499,6 +500,16 @@ export default function DrillSession() {
           style={{ minWidth: 180 }}
           size="small"
         />
+        {drillMode === 'piano' && (
+          <Space size={4}>
+            <Switch
+              checked={showKeyboardLabels}
+              onChange={setShowKeyboardLabels}
+              size="small"
+            />
+            <Text style={{ fontSize: 13 }}>{t('staffNotation.showKeyLabels')}</Text>
+          </Space>
+        )}
       </Space>
 
       {/* Stage selector */}
@@ -685,6 +696,7 @@ export default function DrillSession() {
             noteRange={keyboardRange}
             highlightKeys={keyboardHighlights}
             disabled={chosen !== null}
+            showNoteLabels={showKeyboardLabels}
           />
         </div>
       )}

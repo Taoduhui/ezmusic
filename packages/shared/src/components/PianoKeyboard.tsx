@@ -126,6 +126,8 @@ export interface PianoKeyboardProps {
   highlightKeys?: KeyHighlight[];
   /** Disable all key interactions */
   disabled?: boolean;
+  /** Show pitch-class labels on keys (default true). Set false for blind training. */
+  showNoteLabels?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -167,6 +169,7 @@ export default function PianoKeyboard({
   noteRange,
   highlightKeys,
   disabled = false,
+  showNoteLabels = true,
 }: PianoKeyboardProps) {
   const keys = noteRange
     ? generatePianoKeys(noteRange.min, noteRange.max)
@@ -248,14 +251,16 @@ export default function PianoKeyboard({
                     {label.solfege}
                   </Text>
                 )}
-                <Text style={{
-                  fontSize: 12,
-                  fontWeight: (isActive || hlState) ? 700 : 400,
-                  color: textColor,
-                  lineHeight: 1,
-                }}>
-                  {k.pitchClass}
-                </Text>
+                {showNoteLabels && (
+                  <Text style={{
+                    fontSize: 12,
+                    fontWeight: (isActive || hlState) ? 700 : 400,
+                    color: textColor,
+                    lineHeight: 1,
+                  }}>
+                    {k.pitchClass}
+                  </Text>
+                )}
                 {hasLabels && isTonic && (
                   <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#7c3aed', marginTop: 2 }} />
                 )}
@@ -313,13 +318,15 @@ export default function PianoKeyboard({
                     {label.solfege}
                   </Text>
                 )}
-                <Text style={{
-                  fontSize: 10,
-                  color: textColor,
-                  lineHeight: 1,
-                }}>
-                  {k.pitchClass}
-                </Text>
+                {showNoteLabels && (
+                  <Text style={{
+                    fontSize: 10,
+                    color: textColor,
+                    lineHeight: 1,
+                  }}>
+                    {k.pitchClass}
+                  </Text>
+                )}
               </div>
             </Tooltip>
           );
