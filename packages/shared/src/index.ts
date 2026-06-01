@@ -5,4 +5,4 @@ export type { SupportedLocale } from './i18n';
 export * from './music';
 
 export { default as PianoKeyboard } from './components/PianoKeyboard';
-export type { PianoKeyboardProps } from './components/PianoKeyboard';
+export type { PianoKeyboardProps, KeyHighlight, KeyHighlightState } from './components/PianoKeyboard';

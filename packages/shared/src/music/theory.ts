@@ -265,6 +265,18 @@ export const BASS_C2_NOTES = ['C2', 'D2', 'E2', 'F2', 'G2', 'A2', 'B2'] as const
 
 export const COMBINED_C3_NOTES = ['C3', 'D3', 'E3', 'F3', 'G3', 'A3', 'B3'] as const;
 
+export const BASS_2OCT_NOTES = [
+  ...BASS_C2_NOTES,
+  ...COMBINED_C3_NOTES,
+] as const;
+
+export const GRAND_STAFF_NOTES = [
+  ...BASS_C2_NOTES,
+  ...COMBINED_C3_NOTES,
+  ...TREBLE_C4_NOTES,
+  ...TREBLE_C5_NOTES,
+] as const;
+
 export const TREBLE_FREE_NOTES = [
   'A3', 'B3',
   'C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'B4',
@@ -291,18 +303,20 @@ export type DrillStage =
   | 'treble-c4'
   | 'treble-c5'
   | 'treble-c4c5'
-  | 'bass-c1'
   | 'bass-c2'
-  | 'combined-c3';
+  | 'bass-c3'
+  | 'bass-c2c3'
+  | 'combined-grand';
 
 /** Ordered sequence of stages from beginner to advanced */
 export const DRILL_STAGE_ORDER: DrillStage[] = [
   'treble-c4',
   'treble-c5',
   'treble-c4c5',
-  'bass-c1',
   'bass-c2',
-  'combined-c3',
+  'bass-c3',
+  'bass-c2c3',
+  'combined-grand',
 ];
 
 /** Note pool for each stage */
@@ -310,17 +324,16 @@ export const DRILL_STAGE_NOTES: Record<DrillStage, readonly string[]> = {
   'treble-c4': TREBLE_C4_NOTES,
   'treble-c5': TREBLE_C5_NOTES,
   'treble-c4c5': TREBLE_2OCT_NOTES,
-  'bass-c1': BASS_C1_NOTES,
   'bass-c2': BASS_C2_NOTES,
-  'combined-c3': COMBINED_C3_NOTES,
+  'bass-c3': COMBINED_C3_NOTES,
+  'bass-c2c3': BASS_2OCT_NOTES,
+  'combined-grand': GRAND_STAFF_NOTES,
 };
 
-/** Which clef to use for a given note in a given stage */
-export function getClefForNote(note: string, stage: DrillStage): 'treble' | 'bass' {
-  if (stage === 'bass-c1' || stage === 'bass-c2') return 'bass';
-  if (stage === 'combined-c3') {
-    return ['G3', 'A3', 'B3'].includes(note) ? 'treble' : 'bass';
-  }
+/** Which clef to use for rendering a stage */
+export function getClefForNote(_note: string, stage: DrillStage): 'treble' | 'bass' | 'grand' {
+  if (stage.startsWith('bass-')) return 'bass';
+  if (stage === 'combined-grand') return 'grand';
   return 'treble';
 }
 

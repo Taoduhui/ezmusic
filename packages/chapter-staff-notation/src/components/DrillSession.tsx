@@ -2,24 +2,26 @@
  * DrillSession — Anki-like progressive staff note reading drill.
  *
  * Stages:
- *   1. Treble · C4 octave  (C4–B4, 7 notes) — must master all to unlock next
- *   2. Treble · C5 octave  (C5–B5, 7 notes) — must master all to unlock next
- *   3. Treble · C4 + C5   (C4–B5, 14 notes) — must master all to unlock next
- *   4. Bass   · C1 octave (C1–B1, 7 notes) — must master all to unlock next
- *   5. Bass   · C2 octave (C2–B2, 7 notes) — must master all to unlock next
- *   6. Grand staff · C3   (C3–B3, 7 notes across bass/treble clefs)
+ *   1. Treble · C4       (C4–B4, 7 notes)
+ *   2. Treble · C5       (C5–B5, 7 notes)
+ *   3. Treble · C4 + C5  (C4–B5, 14 notes)
+ *   4. Bass   · C2       (C2–B2, 7 notes)
+ *   5. Bass   · C3       (C3–B3, 7 notes)
+ *   6. Bass   · C2 + C3  (C2–B3, 14 notes)
+ *   7. Grand staff       (C2–B5, 28 notes across bass/treble clefs)
  *
  * Mastery rule: 3 consecutive correct answers per note.
  * Progress is persisted to localStorage.
+ * Users can freely switch between any stage at any time.
  */
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   Card, Button, Space, Typography, Progress, Tag, Badge,
-  Divider, Row, Col, Tooltip, Popconfirm, Grid,
+  Divider, Row, Col, Tooltip, Popconfirm, Grid, Select,
 } from 'antd';
 import {
   CheckOutlined, CloseOutlined, ReloadOutlined,
-  TrophyOutlined, LockOutlined, FireOutlined,
+  TrophyOutlined, FireOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import {
@@ -35,6 +37,7 @@ import {
   useAudio,
 } from '@ezmusic/shared';
 import StaffDisplay from './StaffDisplay';
+import { PianoKeyboard, type KeyHighlight } from '@ezmusic/shared';
 
 const { Title, Text, Paragraph } = Typography;
 const { useBreakpoint } = Grid;
@@ -50,29 +53,31 @@ function wait(ms: number): Promise<void> {
   });
 }
 
+/** Training mode: note-name buttons or piano keyboard */
+type DrillMode = 'note-name' | 'piano';
+
+/** Compute the keyboard range for a given note pool (extend max to next C for completeness). */
+function getKeyboardRange(pool: readonly string[]): { min: string; max: string } {
+  const min = pool[0];
+  const max = pool[pool.length - 1];
+  // If the max note is not a C, extend to C of the next octave
+  const maxPC = max.replace(/\d+$/, '');
+  const maxOctMatch = /\d+$/.exec(max);
+  const maxOct = maxOctMatch ? parseInt(maxOctMatch[0], 10) : 4;
+  const extendedMax = maxPC === 'C' ? max : `C${maxOct + 1}`;
+  return { min, max: extendedMax };
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 interface DrillProgressStore {
-  unlockedStages: DrillStage[];
   noteProgress: Record<string, NoteProgress>;
-}
-
-function normalizeUnlockedStages(stages: unknown): DrillStage[] {
-  const valid = Array.isArray(stages)
-    ? stages.filter((stage): stage is DrillStage => DRILL_STAGE_ORDER.includes(stage as DrillStage))
-    : [];
-
-  const ordered = DRILL_STAGE_ORDER.filter((stage) => valid.includes(stage));
-  return ordered.length > 0 && ordered[0] === DRILL_STAGE_ORDER[0]
-    ? ordered
-    : [DRILL_STAGE_ORDER[0], ...ordered];
 }
 
 function emptyProgress(): DrillProgressStore {
   return {
-    unlockedStages: [DRILL_STAGE_ORDER[0]],
     noteProgress: {},
   };
 }
@@ -81,9 +86,8 @@ function loadProgress(): DrillProgressStore {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      const parsed = JSON.parse(raw) as Partial<DrillProgressStore>;
+      const parsed = JSON.parse(raw) as Partial<DrillProgressStore & { unlockedStages?: unknown }>;
       return {
-        unlockedStages: normalizeUnlockedStages(parsed.unlockedStages),
         noteProgress: parsed.noteProgress ?? {},
       };
     }
@@ -109,12 +113,13 @@ interface StageInfo {
 }
 
 const STAGE_INFO: StageInfo[] = [
-  { id: 'treble-c4',    titleKey: 'staffNotation.stageTrebleC4',    descKey: 'staffNotation.stageTrebleC4Desc',    color: '#7c3aed' },
-  { id: 'treble-c5',    titleKey: 'staffNotation.stageTrebleC5',    descKey: 'staffNotation.stageTrebleC5Desc',    color: '#2563eb' },
-  { id: 'treble-c4c5',  titleKey: 'staffNotation.stageTrebleC4C5',  descKey: 'staffNotation.stageTrebleC4C5Desc',  color: '#059669' },
-  { id: 'bass-c1',      titleKey: 'staffNotation.stageBassC1',      descKey: 'staffNotation.stageBassC1Desc',      color: '#d97706' },
-  { id: 'bass-c2',      titleKey: 'staffNotation.stageBassC2',      descKey: 'staffNotation.stageBassC2Desc',      color: '#ea580c' },
-  { id: 'combined-c3',  titleKey: 'staffNotation.stageCombinedC3',  descKey: 'staffNotation.stageCombinedC3Desc',  color: '#dc2626' },
+  { id: 'treble-c4',       titleKey: 'staffNotation.stageTrebleC4',       descKey: 'staffNotation.stageTrebleC4Desc',       color: '#7c3aed' },
+  { id: 'treble-c5',       titleKey: 'staffNotation.stageTrebleC5',       descKey: 'staffNotation.stageTrebleC5Desc',       color: '#2563eb' },
+  { id: 'treble-c4c5',     titleKey: 'staffNotation.stageTrebleC4C5',     descKey: 'staffNotation.stageTrebleC4C5Desc',     color: '#059669' },
+  { id: 'bass-c2',         titleKey: 'staffNotation.stageBassC2',         descKey: 'staffNotation.stageBassC2Desc',         color: '#d97706' },
+  { id: 'bass-c3',         titleKey: 'staffNotation.stageBassC3',         descKey: 'staffNotation.stageBassC3Desc',         color: '#dc2626' },
+  { id: 'bass-c2c3',       titleKey: 'staffNotation.stageBassC2C3',       descKey: 'staffNotation.stageBassC2C3Desc',       color: '#0891b2' },
+  { id: 'combined-grand',  titleKey: 'staffNotation.stageCombinedGrand',  descKey: 'staffNotation.stageCombinedGrandDesc',  color: '#6d28d9' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -166,18 +171,16 @@ function AnswerButton({ label, state, onClick, disabled }: AnswerButtonProps) {
 
 interface StageSelectorProps {
   current: DrillStage;
-  unlocked: DrillStage[];
   onSelect: (s: DrillStage) => void;
   noteProgress: Record<string, NoteProgress>;
 }
 
-function StageSelector({ current, unlocked, onSelect, noteProgress }: StageSelectorProps) {
+function StageSelector({ current, onSelect, noteProgress }: StageSelectorProps) {
   const { t } = useTranslation();
 
   return (
     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 20 }}>
       {STAGE_INFO.map((s) => {
-        const isUnlocked = unlocked.includes(s.id);
         const isCurrent = s.id === current;
         const pool = DRILL_STAGE_NOTES[s.id];
         const masteredCount = pool.filter((n) => noteProgress[n]?.mastered).length;
@@ -186,31 +189,23 @@ function StageSelector({ current, unlocked, onSelect, noteProgress }: StageSelec
         return (
           <Tooltip
             key={s.id}
-            title={
-              isUnlocked
-                ? t(s.descKey)
-                : t('staffNotation.stageLocked')
-            }
+            title={t(s.descKey)}
           >
             <Button
               type={isCurrent ? 'primary' : 'default'}
-              onClick={() => isUnlocked && onSelect(s.id)}
-              disabled={!isUnlocked}
+              onClick={() => onSelect(s.id)}
               style={{
                 borderColor: isCurrent ? s.color : undefined,
                 background: isCurrent ? s.color : undefined,
               }}
-              icon={isUnlocked ? undefined : <LockOutlined />}
             >
               <span>{t(s.titleKey)}</span>
-              {isUnlocked && (
-                <Tag
-                  style={{ marginLeft: 6, fontSize: 11 }}
-                  color={masteredCount === total ? 'success' : 'default'}
-                >
-                  {masteredCount}/{total}
-                </Tag>
-              )}
+              <Tag
+                style={{ marginLeft: 6, fontSize: 11 }}
+                color={masteredCount === total ? 'success' : 'default'}
+              >
+                {masteredCount}/{total}
+              </Tag>
             </Button>
           </Tooltip>
         );
@@ -301,6 +296,7 @@ export default function DrillSession() {
 
   const [store, setStore] = useState<DrillProgressStore>(loadProgress);
   const [stage, setStage] = useState<DrillStage>(DRILL_STAGE_ORDER[0]);
+  const [drillMode, setDrillMode] = useState<DrillMode>('note-name');
   const [currentNote, setCurrentNote] = useState<string | null>(null);
   const [choices, setChoices] = useState<string[]>([]);
   const [chosen, setChosen] = useState<string | null>(null);
@@ -317,6 +313,27 @@ export default function DrillSession() {
     () => isStageComplete(pool, store.noteProgress),
     [pool, store.noteProgress],
   );
+
+  // Keyboard range for piano mode
+  const keyboardRange = useMemo(
+    () => getKeyboardRange(pool),
+    [pool],
+  );
+
+  // Answer highlights for piano mode keyboard
+  const keyboardHighlights = useMemo<KeyHighlight[]>(() => {
+    if (chosen === null) return [];
+    if (chosen === currentNote) {
+      return [{ note: chosen, state: 'correct' }];
+    }
+    const highlights: KeyHighlight[] = [
+      { note: chosen, state: 'wrong' },
+    ];
+    if (currentNote) {
+      highlights.push({ note: currentNote, state: 'reveal' });
+    }
+    return highlights;
+  }, [chosen, currentNote]);
 
   const replayCurrentNote = useCallback(() => {
     if (!currentNote) return;
@@ -406,21 +423,7 @@ export default function DrillSession() {
 
         const newProgress = { ...prev.noteProgress, [currentNote]: updated };
 
-        // Unlock next stage if this stage is now complete
-        const stageNowComplete = pool.every(
-          (n) => (n === currentNote ? updated : newProgress[n])?.mastered,
-        );
-        const stageIdx = DRILL_STAGE_ORDER.indexOf(stage);
-        const nextStage = DRILL_STAGE_ORDER[stageIdx + 1];
-        const shouldUnlock =
-          stageNowComplete &&
-          nextStage &&
-          !prev.unlockedStages.includes(nextStage);
-
         return {
-          unlockedStages: shouldUnlock
-            ? [...prev.unlockedStages, nextStage]
-            : prev.unlockedStages,
           noteProgress: newProgress,
         };
       });
@@ -432,7 +435,7 @@ export default function DrillSession() {
         setStreak(0);
       }
     },
-    [currentNote, chosen, pool, stage, playAnswerFeedback],
+    [currentNote, chosen, playAnswerFeedback],
   );
 
   const handleNext = useCallback(() => {
@@ -483,10 +486,24 @@ export default function DrillSession() {
         {t('staffNotation.drillHint')}
       </Paragraph>
 
+      {/* Training mode selector */}
+      <Space style={{ marginBottom: 16 }} wrap>
+        <Text style={{ fontSize: 13 }}>{t('staffNotation.trainingMode')}:</Text>
+        <Select
+          value={drillMode}
+          onChange={(v) => setDrillMode(v)}
+          options={[
+            { value: 'note-name', label: t('staffNotation.trainingModeNoteName') },
+            { value: 'piano', label: t('staffNotation.trainingModePiano') },
+          ]}
+          style={{ minWidth: 180 }}
+          size="small"
+        />
+      </Space>
+
       {/* Stage selector */}
       <StageSelector
         current={stage}
-        unlocked={store.unlockedStages}
         onSelect={startStage}
         noteProgress={store.noteProgress}
       />
@@ -535,7 +552,7 @@ export default function DrillSession() {
               style={{ marginLeft: 16, background: '#059669', borderColor: '#059669' }}
               onClick={() => {
                 const next = DRILL_STAGE_ORDER[DRILL_STAGE_ORDER.indexOf(stage) + 1];
-                if (next && store.unlockedStages.includes(next)) startStage(next);
+                if (next) startStage(next);
               }}
             >
               {t('staffNotation.stageCompleteAction')} →
@@ -605,21 +622,24 @@ export default function DrillSession() {
             </div>
           )}
 
-          {/* Answer buttons 2×2 grid */}
-          <Row gutter={[8, 8]}>
-            {choices.map((option) => (
-              <Col key={option} span={12}>
-                <AnswerButton
-                  label={option}
-                  state={getButtonState(option)}
-                  onClick={() => handleAnswer(option)}
-                  disabled={chosen !== null}
-                />
-              </Col>
-            ))}
-          </Row>
+          {/* Answer buttons (note-name mode only) */}
+          {drillMode === 'note-name' && (
+            <Row gutter={[8, 8]}>
+              {choices.map((option) => (
+                <Col key={option} span={12}>
+                  <AnswerButton
+                    label={option}
+                    state={getButtonState(option)}
+                    onClick={() => handleAnswer(option)}
+                    disabled={chosen !== null}
+                  />
+                </Col>
+              ))}
+            </Row>
+          )}
 
-          {chosen !== null && (
+          {/* Next button (note-name mode — placed inside col) */}
+          {drillMode === 'note-name' && chosen !== null && (
             <Button
               type="primary"
               block
@@ -656,6 +676,31 @@ export default function DrillSession() {
           />
         </Col>
       </Row>
+
+      {/* Piano keyboard — full width below the two-column layout (piano mode only) */}
+      {drillMode === 'piano' && (
+        <div style={{ marginTop: 8 }}>
+          <PianoKeyboard
+            onKeyPress={(_pc, note) => handleAnswer(note)}
+            noteRange={keyboardRange}
+            highlightKeys={keyboardHighlights}
+            disabled={chosen !== null}
+          />
+        </div>
+      )}
+
+      {/* Next button (piano mode — full width below keyboard) */}
+      {drillMode === 'piano' && chosen !== null && (
+        <Button
+          type="primary"
+          block
+          size="large"
+          style={{ marginTop: 16 }}
+          onClick={handleNext}
+        >
+          {t('staffNotation.nextQuestion')} →
+        </Button>
+      )}
     </Card>
   );
 }
