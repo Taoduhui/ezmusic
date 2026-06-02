@@ -372,7 +372,7 @@ export function selectDrillNote(
   return pool[pool.length - 1];
 }
 
-/** Pick 3 wrong-answer distractors from the pool, preferring pitch-adjacent notes */
+/** Pick 2 wrong-answer distractors from the pool, preferring pitch-adjacent notes */
 export function getDrillDistractors(
   correctNote: string,
   pool: readonly string[],
@@ -385,10 +385,10 @@ export function getDrillDistractors(
     const db = Math.abs(pool.indexOf(b) - correctIdx);
     return da - db;
   });
-  // Take the 3 closest, then shuffle among them for variety
+  // Take the 6 closest, shuffle, then pick 2 for variety
   const candidates = sorted.slice(0, Math.min(6, sorted.length));
   const shuffled = candidates.sort(() => Math.random() - 0.5);
-  return shuffled.slice(0, 3);
+  return shuffled.slice(0, 2);
 }
 
 /** True when every note in the pool has been mastered */
