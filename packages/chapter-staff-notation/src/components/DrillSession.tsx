@@ -86,6 +86,8 @@ interface DrillProgressStore {
   preferredStage?: DrillStage;
   /** Persisted training mode preference */
   preferredMode?: DrillMode;
+  /** Persisted collapse panel expanded state */
+  progressPanelExpanded?: boolean;
 }
 
 function emptyProgress(): DrillProgressStore {
@@ -579,7 +581,13 @@ export default function DrillSession() {
           {/* Collapsible progress section */}
           <Collapse
             ghost
-            defaultActiveKey={[]}
+            activeKey={store.progressPanelExpanded !== false ? ['progress'] : []}
+            onChange={(keys) => {
+              setStore((prev) => ({
+                ...prev,
+                progressPanelExpanded: Array.isArray(keys) && keys.includes('progress'),
+              }));
+            }}
             style={{ marginBottom: 16 }}
             items={[
               {

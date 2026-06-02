@@ -1,5 +1,6 @@
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
+import LanguageDetector from 'i18next-browser-languagedetector';
 import zhCN from './locales/zh-CN';
 import enUS from './locales/en-US';
 
@@ -18,15 +19,22 @@ export const supportedLocales: { key: SupportedLocale; label: string }[] = [
 ];
 
 if (!i18n.isInitialized) {
-  i18n.use(initReactI18next).init({
-    resources,
-    defaultNS,
-    lng: 'zh-CN',
-    fallbackLng: 'zh-CN',
-    interpolation: {
-      escapeValue: false,
-    },
-  });
+  i18n
+    .use(LanguageDetector)
+    .use(initReactI18next)
+    .init({
+      resources,
+      defaultNS,
+      fallbackLng: 'zh-CN',
+      supportedLngs: Object.keys(resources),
+      detection: {
+        order: ['localStorage', 'navigator'],
+        caches: ['localStorage'],
+      },
+      interpolation: {
+        escapeValue: false,
+      },
+    });
 }
 
 export default i18n;

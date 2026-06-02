@@ -1,9 +1,71 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig(({ command }) => ({
   base: command === 'build' ? '/ezmusic/' : '/',
-  plugins: [react()],
+  plugins: [
+    react(),
+    VitePWA({
+      registerType: 'autoUpdate',
+      // Generate PWA icons from the existing favicon SVG
+      pwaAssets: {
+        image: 'public/favicon.svg',
+        preset: 'minimal-2023',
+      },
+      manifest: {
+        name: '音乐训练',
+        short_name: '音乐训练',
+        description: '音乐训练 · 音程速算、识谱速训、音程速训',
+        theme_color: '#7c3aed',
+        background_color: '#ffffff',
+        display: 'standalone',
+        lang: 'zh-CN',
+        categories: ['education', 'music'],
+      },
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        runtimeCaching: [
+          {
+            // Cache audio samples (piano notes) with cache-first strategy
+            urlPattern: /\/audio\/.*\.mp3$/,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'audio-cache',
+              expiration: {
+                maxEntries: 50,
+                maxAgeSeconds: 30 * 24 * 60 * 60, // 30 days
+              },
+            },
+          },
+          {
+            // Google Fonts stylesheets
+            urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'google-fonts-stylesheets',
+              expiration: {
+                maxEntries: 10,
+                maxAgeSeconds: 60 * 60 * 24 * 365, // 1 year
+              },
+            },
+          },
+          {
+            // Google Fonts webfont files
+            urlPattern: /^https:\/\/fonts\.gstatic\.com\/.*/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'google-fonts-webfonts',
+              expiration: {
+                maxEntries: 30,
+                maxAgeSeconds: 60 * 60 * 24 * 365, // 1 year
+              },
+            },
+          },
+        ],
+      },
+    }),
+  ],
   optimizeDeps: {
     exclude: [
       '@ezmusic/shared',
