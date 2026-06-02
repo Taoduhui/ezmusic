@@ -6,3 +6,5 @@ export * from './music';
 
 export { default as PianoKeyboard } from './components/PianoKeyboard';
 export type { PianoKeyboardProps, KeyHighlight, KeyHighlightState } from './components/PianoKeyboard';
+
+export { setDrawerTrigger, triggerOpenDrawer } from './utils/drawerTrigger';

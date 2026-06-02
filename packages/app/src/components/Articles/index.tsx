@@ -8,17 +8,14 @@ import {
   Grid,
   Typography,
   Select,
-  Affix,
-  Tooltip,
 } from 'antd';
 import {
-  MenuOutlined,
   SoundOutlined,
   CloseOutlined,
 } from '@ant-design/icons';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { supportedLocales, i18n } from '@ezmusic/shared';
+import { supportedLocales, i18n, setDrawerTrigger } from '@ezmusic/shared';
 import type { SupportedLocale } from '@ezmusic/shared';
 
 const { Sider, Content } = Layout;
@@ -199,6 +196,14 @@ export default function Articles({ pages, defaultCurrent = 0 }: ArticlesProps) {
     </div>
   );
 
+  // Register drawer trigger so drill-component hamburger buttons can open the drawer on mobile
+  useEffect(() => {
+    if (!isDesktop) {
+      setDrawerTrigger(() => setDrawerOpen(true));
+      return () => setDrawerTrigger(null);
+    }
+  }, [isDesktop]);
+
   return (
     <Layout style={{ minHeight: '100vh', background: '#fff' }}>
       {/* Desktop Sider */}
@@ -250,45 +255,6 @@ export default function Articles({ pages, defaultCurrent = 0 }: ArticlesProps) {
           background: '#fff',
         }}
       >
-        {/* Mobile top bar */}
-        {!isDesktop && (
-          <Affix offsetTop={0}>
-            <div
-              style={{
-                background: '#fff',
-                borderBottom: '1px solid #f0f0f0',
-                padding: '0 16px',
-                height: 56,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                zIndex: 99,
-              }}
-            >
-              <Tooltip title={t('nav.openMenu')}>
-                <Button
-                  type="text"
-                  icon={<MenuOutlined />}
-                  onClick={() => setDrawerOpen(true)}
-                />
-              </Tooltip>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <SoundOutlined style={{ color: '#7c3aed' }} />
-                <Text strong style={{ fontSize: 15 }}>
-                  {t('app.title')}
-                </Text>
-              </div>
-              <Select
-                value={locale}
-                onChange={handleLocaleChange}
-                options={supportedLocales.map((l) => ({ value: l.key, label: l.label }))}
-                size="small"
-                style={{ width: 90 }}
-              />
-            </div>
-          </Affix>
-        )}
-
         {/* Content — full-width, no padding, no max-width */}
         <Content style={{ overflowX: 'hidden' }}>
           <div key={currentPage.path}>

@@ -21,7 +21,7 @@ import {
 } from 'antd';
 import {
   CheckOutlined, CloseOutlined, ReloadOutlined,
-  TrophyOutlined, FireOutlined,
+  TrophyOutlined, FireOutlined, MenuOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import {
@@ -35,6 +35,7 @@ import {
   shuffleArray,
   getClefForNote,
   useAudio,
+  triggerOpenDrawer,
 } from '@ezmusic/shared';
 import StaffDisplay from './StaffDisplay';
 import { PianoKeyboard, type KeyHighlight } from '@ezmusic/shared';
@@ -469,7 +470,16 @@ export default function DrillSession() {
     <Card
       title={
         <Space>
-          <span style={{ fontSize: 18 }}>🎓</span>
+          {screens.lg ? (
+            <span style={{ fontSize: 18 }}>🎓</span>
+          ) : (
+            <Button
+              type="text"
+              icon={<MenuOutlined />}
+              onClick={() => triggerOpenDrawer()}
+              style={{ padding: 0 }}
+            />
+          )}
           <span style={{ fontWeight: 600 }}>{t('staffNotation.drillTitle')}</span>
         </Space>
       }

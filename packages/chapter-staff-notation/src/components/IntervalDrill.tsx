@@ -11,9 +11,9 @@ import {
   Tag,
   Typography,
 } from 'antd';
-import { ReloadOutlined, SoundOutlined, TrophyOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SoundOutlined, TrophyOutlined, MenuOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { useAudio } from '@ezmusic/shared';
+import { useAudio, triggerOpenDrawer } from '@ezmusic/shared';
 
 import StaffDisplay from './StaffDisplay';
 
@@ -314,7 +314,16 @@ export default function IntervalDrill() {
     <Card
       title={(
         <Space>
-          <span style={{ fontSize: 18 }}>🎯</span>
+          {screens.lg ? (
+            <span style={{ fontSize: 18 }}>🎯</span>
+          ) : (
+            <Button
+              type="text"
+              icon={<MenuOutlined />}
+              onClick={() => triggerOpenDrawer()}
+              style={{ padding: 0 }}
+            />
+          )}
           <span style={{ fontWeight: 600 }}>{t('staffNotation.intervalDrillTitle')}</span>
         </Space>
       )}
