@@ -34,6 +34,7 @@ import { PianoKeyboard } from "@ezmusic/shared";
 import MappingTable from "./components/MappingTable";
 import FreqChart from "./components/FreqChart";
 import IntervalDrill from "./components/IntervalDrill";
+export { IntervalDrill as NoteSolfegeIntervalDrill };
 
 const { Title, Paragraph, Text } = Typography;
 
@@ -617,22 +618,7 @@ export default function ChapterNoteSolfege() {
       </Card>
 
       {/* ── Section 5: Interval Speed Drill ─────────────────── */}
-      <Card
-        title={
-          <Space>
-            <span>⚡</span>
-            <span>{isZh ? "音程速算训练" : "Interval Speed Drill"}</span>
-          </Space>
-        }
-        style={{ borderRadius: 12, marginBottom: 32 }}
-      >
-        <Paragraph style={{ color: "#555", marginBottom: 24 }}>
-          {isZh
-            ? "两个八度内随机给出两个音，计算它们之间相差几个半音。通过反复练习建立音程的直觉感知。"
-            : "Two random notes within two octaves — count the semitones between them. Repeated practice builds intuitive interval recognition."}
-        </Paragraph>
-        <IntervalDrill />
-      </Card>
+      <IntervalDrill />
     </div>
   );
 }

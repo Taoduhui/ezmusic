@@ -368,7 +368,7 @@ export default function IntervalDrill() {
             notes={question.notes}
             clef={question.clef}
             noteDuration="h"
-            width={screens.md ? 360 : 280}
+            width={screens.xl ? 520 : screens.lg ? 440 : screens.md ? 360 : 280}
             height={190}
           />
           <Button type="text" icon={<SoundOutlined />} onClick={(event) => {

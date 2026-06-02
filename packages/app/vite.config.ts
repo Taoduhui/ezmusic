@@ -7,9 +7,8 @@ export default defineConfig(({ command }) => ({
   optimizeDeps: {
     exclude: [
       '@ezmusic/shared',
-      '@ezmusic/chapter-prologue',
-      '@ezmusic/chapter-listening',
-      '@ezmusic/ear-trainer',
+      '@ezmusic/chapter-note-solfege',
+      '@ezmusic/chapter-staff-notation',
     ],
   },
   server: {

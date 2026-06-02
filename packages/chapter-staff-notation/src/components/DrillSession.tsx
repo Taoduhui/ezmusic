@@ -179,12 +179,10 @@ function StageSelector({ current, onSelect, noteProgress }: StageSelectorProps) 
   const { t } = useTranslation();
 
   return (
-    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 20 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 8, marginBottom: 20 }}>
       {STAGE_INFO.map((s) => {
         const isCurrent = s.id === current;
         const pool = DRILL_STAGE_NOTES[s.id];
-        const masteredCount = pool.filter((n) => noteProgress[n]?.mastered).length;
-        const total = pool.length;
 
         return (
           <Tooltip
@@ -200,12 +198,6 @@ function StageSelector({ current, onSelect, noteProgress }: StageSelectorProps) 
               }}
             >
               <span>{t(s.titleKey)}</span>
-              <Tag
-                style={{ marginLeft: 6, fontSize: 11 }}
-                color={masteredCount === total ? 'success' : 'default'}
-              >
-                {masteredCount}/{total}
-              </Tag>
             </Button>
           </Tooltip>
         );
@@ -232,7 +224,7 @@ function ProgressBoard({ pool, noteProgress, currentNote }: ProgressBoardProps) 
       <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
         {t('staffNotation.masteryRequired')}
       </Text>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(44px, 1fr))', gap: 6 }}>
         {pool.map((note) => {
           const p = noteProgress[note];
           const streak = p?.correctStreak ?? 0;
@@ -608,7 +600,7 @@ export default function DrillSession() {
                 notes={currentNote}
                 clef={clef}
                 highlightNote={chosen !== null ? currentNote : undefined}
-                width={screens.md ? 260 : 220}
+                width={screens.xl ? 440 : screens.lg ? 380 : screens.md ? 300 : 220}
                 height={190}
               />
             )}

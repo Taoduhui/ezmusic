@@ -4,7 +4,6 @@ import {
   Menu,
   Button,
   Drawer,
-  Tag,
   Space,
   Grid,
   Typography,
@@ -14,8 +13,6 @@ import {
 } from 'antd';
 import {
   MenuOutlined,
-  LeftOutlined,
-  RightOutlined,
   SoundOutlined,
   CloseOutlined,
 } from '@ant-design/icons';
@@ -31,7 +28,6 @@ const { Text } = Typography;
 export interface PageConfig {
   path: string;
   title: string;
-  optional?: boolean;
   page: () => ReactNode;
 }
 
@@ -97,35 +93,23 @@ export default function Articles({ pages, defaultCurrent = 0 }: ArticlesProps) {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [pages, routerNavigate]);
 
-  const hasPrev = resolvedCurrentIdx > 0;
-  const hasNext = resolvedCurrentIdx < pages.length - 1;
   const currentPage = pages[resolvedCurrentIdx];
 
   const menuItems = pages.map((p, idx) => ({
     key: p.path,
     label: (
-      <Space style={{ justifyContent: 'space-between', width: '100%' }}>
-        <Text
-          style={{
-            color: idx === resolvedCurrentIdx ? '#7c3aed' : undefined,
-            fontWeight: idx === resolvedCurrentIdx ? 600 : 400,
-            fontSize: 14,
-            lineHeight: 1.5,
-            whiteSpace: 'normal',
-            wordBreak: 'break-all',
-          }}
-        >
-          {p.title}
-        </Text>
-        {p.optional && (
-          <Tag
-            color="purple"
-            style={{ fontSize: 11, lineHeight: '18px', padding: '0 6px', flexShrink: 0 }}
-          >
-            {t('nav.optional')}
-          </Tag>
-        )}
-      </Space>
+      <Text
+        style={{
+          color: idx === resolvedCurrentIdx ? '#7c3aed' : undefined,
+          fontWeight: idx === resolvedCurrentIdx ? 600 : 400,
+          fontSize: 14,
+          lineHeight: 1.5,
+          whiteSpace: 'normal',
+          wordBreak: 'break-all',
+        }}
+      >
+        {p.title}
+      </Text>
     ),
   }));
 
@@ -216,7 +200,7 @@ export default function Articles({ pages, defaultCurrent = 0 }: ArticlesProps) {
   );
 
   return (
-    <Layout style={{ minHeight: '100vh', background: '#f7f8fa' }}>
+    <Layout style={{ minHeight: '100vh', background: '#fff' }}>
       {/* Desktop Sider */}
       {isDesktop && (
         <Sider
@@ -263,7 +247,7 @@ export default function Articles({ pages, defaultCurrent = 0 }: ArticlesProps) {
         style={{
           marginLeft: isDesktop ? SIDER_WIDTH : 0,
           minHeight: '100vh',
-          background: '#f7f8fa',
+          background: '#fff',
         }}
       >
         {/* Mobile top bar */}
@@ -305,70 +289,10 @@ export default function Articles({ pages, defaultCurrent = 0 }: ArticlesProps) {
           </Affix>
         )}
 
-        {/* Content */}
-        <Content>
-          <div
-            style={{
-              maxWidth: 960,
-              margin: '0 auto',
-              padding: isDesktop ? '48px 48px 80px' : '24px 0 80px',
-            }}
-          >
-            {/* Chapter label */}
-            <div style={{ marginBottom: 8 }}>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                {t('nav.chapter', { index: resolvedCurrentIdx + 1 })}
-                {currentPage.optional && (
-                  <Tag color="purple" style={{ marginLeft: 8, fontSize: 11 }}>
-                    {t('nav.optional')}
-                  </Tag>
-                )}
-              </Text>
-            </div>
-
-            {/* Page content */}
-            <div key={currentPage.path} style={{ animation: 'fadeIn 0.25s ease' }}>
-              {currentPage.page()}
-            </div>
-
-            {/* Bottom navigation – only shown when there are multiple pages */}
-            {pages.length > 1 && (
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                marginTop: 64,
-                paddingTop: 24,
-                borderTop: '1px solid #f0f0f0',
-                gap: 16,
-              }}
-            >
-              <Button
-                size="large"
-                icon={<LeftOutlined />}
-                onClick={() => goToPage(resolvedCurrentIdx - 1)}
-                disabled={!hasPrev}
-                style={{ borderRadius: 8 }}
-              >
-                {t('nav.prev')}
-              </Button>
-              <Text type="secondary" style={{ fontSize: 13 }}>
-                {resolvedCurrentIdx + 1} / {pages.length}
-              </Text>
-              <Button
-                type="primary"
-                size="large"
-                icon={<RightOutlined />}
-                iconPosition="end"
-                onClick={() => goToPage(resolvedCurrentIdx + 1)}
-                disabled={!hasNext}
-                style={{ borderRadius: 8, background: '#7c3aed', borderColor: '#7c3aed' }}
-              >
-                {t('nav.next')}
-              </Button>
-            </div>
-            )}
+        {/* Content — full-width, no padding, no max-width */}
+        <Content style={{ overflowX: 'hidden' }}>
+          <div key={currentPage.path}>
+            {currentPage.page()}
           </div>
         </Content>
       </Layout>

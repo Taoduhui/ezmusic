@@ -4,8 +4,8 @@ import enUS from 'antd/locale/en_US';
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import Articles from './components/Articles';
-import ChapterNoteSolfege from '@ezmusic/chapter-note-solfege';
-import ChapterStaffNotation from '@ezmusic/chapter-staff-notation';
+import { NoteSolfegeIntervalDrill } from '@ezmusic/chapter-note-solfege';
+import { DrillSession, StaffIntervalDrill } from '@ezmusic/chapter-staff-notation';
 // Initialize i18n
 import '@ezmusic/shared';
 
@@ -30,14 +30,19 @@ export default function App() {
 
   const pages = [
     {
-      path: '/note-solfege',
-      title: t('noteSolfege.menuTitle'),
-      page: () => <ChapterNoteSolfege />,
+      path: '/interval-speed-drill',
+      title: t('noteSolfege.intervalSpeedDrill'),
+      page: () => <NoteSolfegeIntervalDrill />,
     },
     {
-      path: '/staff-notation',
-      title: t('staffNotation.menuTitle'),
-      page: () => <ChapterStaffNotation />,
+      path: '/note-reading-drill',
+      title: t('staffNotation.drillTitle'),
+      page: () => <DrillSession />,
+    },
+    {
+      path: '/interval-drill',
+      title: t('staffNotation.intervalDrillTitle'),
+      page: () => <StaffIntervalDrill />,
     },
   ];
 
