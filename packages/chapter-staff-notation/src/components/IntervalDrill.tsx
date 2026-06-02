@@ -10,6 +10,7 @@ import {
   Switch,
   Tag,
   Typography,
+  message,
 } from 'antd';
 import { ReloadOutlined, SoundOutlined, TrophyOutlined, MenuOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
@@ -21,11 +22,15 @@ const { Paragraph, Text } = Typography;
 const { useBreakpoint } = Grid;
 
 const STORAGE_KEY = 'ezmusic-staff-interval-drill';
-const SEMITONE_MIN = 1;
-const SEMITONE_MAX = 12;
-const DEFAULT_RANGE: [number, number] = [1, 3];
+const LEFT_MIN = 1;
+const LEFT_MAX = 10;
+const RIGHT_MIN = 3;
+const RIGHT_MAX = 12;
+const DEFAULT_RANGE: [number, number] = [3, 5];
 const NOTE_PLAY_DURATION = 0.8;
 const NOTE_GAP_MS = 120;
+/** Delay before auto-advancing to next question on correct answer */
+const AUTO_ADVANCE_DELAY_MS = 1000;
 
 const PITCH_CLASSES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 const NATURAL_PITCH_CLASSES = new Set(['C', 'D', 'E', 'F', 'G', 'A', 'B']);
@@ -36,7 +41,7 @@ const CLEF_RANGES: Record<'treble' | 'bass', { min: number; max: number }> = {
 };
 
 const SLIDER_MARKS = Object.fromEntries(
-  Array.from({ length: SEMITONE_MAX }, (_, index) => {
+  Array.from({ length: RIGHT_MAX }, (_, index) => {
     const value = index + 1;
     return [value, String(value)];
   }),
@@ -62,8 +67,12 @@ function wait(ms: number): Promise<void> {
   });
 }
 
-function clampSemitone(value: number): number {
-  return Math.min(SEMITONE_MAX, Math.max(SEMITONE_MIN, Math.round(value)));
+function clampLeft(value: number): number {
+  return Math.min(LEFT_MAX, Math.max(LEFT_MIN, Math.round(value)));
+}
+
+function clampRight(value: number): number {
+  return Math.min(RIGHT_MAX, Math.max(RIGHT_MIN, Math.round(value)));
 }
 
 function isRangeValue(value: unknown): value is [number, number] {
@@ -72,8 +81,12 @@ function isRangeValue(value: unknown): value is [number, number] {
 
 function normalizeRange(value: unknown): [number, number] {
   if (!isRangeValue(value)) return DEFAULT_RANGE;
-  const low = clampSemitone(Math.min(value[0], value[1]));
-  const high = clampSemitone(Math.max(value[0], value[1]));
+  const low = clampLeft(Math.min(value[0], value[1]));
+  let high = clampRight(Math.max(value[0], value[1]));
+  // Ensure at least 3 distinct values in range (width >= 2)
+  if (high - low < 2) {
+    high = Math.min(RIGHT_MAX, low + 2);
+  }
   return [low, high];
 }
 
@@ -186,7 +199,7 @@ function applyAnswerResult(store: IntervalDrillStore, isCorrect: boolean): {
 
   if (recentResults.length === 20) {
     const correctCount = recentResults.filter(Boolean).length;
-    if (correctCount >= 18 && store.range[1] < SEMITONE_MAX) {
+    if (correctCount >= 18 && store.range[1] < RIGHT_MAX) {
       const promotedRange: [number, number] = [store.range[0], store.range[1] + 1];
       return {
         nextStore: {
@@ -223,8 +236,35 @@ export default function IntervalDrill() {
   const [selected, setSelected] = useState<number | null>(null);
   const [lastPromotion, setLastPromotion] = useState<[number, number] | null>(null);
   const playbackIdRef = useRef(0);
+  const autoAdvanceRef = useRef<number | null>(null);
+  const rangeDebounceRef = useRef<number | null>(null);
 
-  const options = useMemo(() => buildOptions(store.range), [store.range]);
+  const options = useMemo(() => {
+    const all = buildOptions(store.range);
+    const correct = question.semitones;
+    const others = all.filter((v) => v !== correct);
+
+    // Fisher-Yates shuffle on others, then take up to 2
+    for (let i = others.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [others[i], others[j]] = [others[j], others[i]];
+    }
+    const picked = [correct, ...others.slice(0, 2)];
+
+    // If range has fewer than 3 values, fill with nearby semitones outside range
+    let offset = 1;
+    while (picked.length < 3) {
+      const below = correct - offset;
+      const above = correct + offset;
+      if (below >= 1 && !picked.includes(below)) picked.push(below);
+      if (picked.length < 3 && above <= 12 && !picked.includes(above)) picked.push(above);
+      offset += 1;
+    }
+
+    // Sort ascending so options display left-to-right
+    picked.sort((a, b) => a - b);
+    return picked;
+  }, [store.range, question.semitones]);
   const recentCorrect = useMemo(
     () => store.recentResults.filter(Boolean).length,
     [store.recentResults],
@@ -259,6 +299,18 @@ export default function IntervalDrill() {
     replayQuestion();
   }, [replayQuestion]);
 
+  // Clear timeouts on unmount
+  useEffect(() => {
+    return () => {
+      if (autoAdvanceRef.current !== null) {
+        window.clearTimeout(autoAdvanceRef.current);
+      }
+      if (rangeDebounceRef.current !== null) {
+        window.clearTimeout(rangeDebounceRef.current);
+      }
+    };
+  }, []);
+
   const handleRangeChange = useCallback((value: number | number[]) => {
     if (!Array.isArray(value) || value.length !== 2) return;
 
@@ -269,10 +321,19 @@ export default function IntervalDrill() {
       recentResults: [],
     };
 
+    // Update store immediately for responsive slider, but debounce
+    // question generation to avoid rapid-fire audio playback while dragging.
     setStore(nextStore);
-    setQuestion(makeQuestion(nextRange, store.allowAccidentals));
     setSelected(null);
     setLastPromotion(null);
+
+    if (rangeDebounceRef.current !== null) {
+      window.clearTimeout(rangeDebounceRef.current);
+    }
+    rangeDebounceRef.current = window.setTimeout(() => {
+      rangeDebounceRef.current = null;
+      setQuestion(makeQuestion(nextRange, store.allowAccidentals));
+    }, 300);
   }, [store]);
 
   const handleAccidentalToggle = useCallback((checked: boolean) => {
@@ -291,13 +352,35 @@ export default function IntervalDrill() {
   const handleAnswer = useCallback((value: number) => {
     if (selected !== null) return;
 
+    // Clear any pending auto-advance
+    if (autoAdvanceRef.current !== null) {
+      window.clearTimeout(autoAdvanceRef.current);
+      autoAdvanceRef.current = null;
+    }
+
     setSelected(value);
-    const result = applyAnswerResult(store, value === question.semitones);
+    const isCorrect = value === question.semitones;
+    const result = applyAnswerResult(store, isCorrect);
     setStore(result.nextStore);
     setLastPromotion(result.promotedRange);
-  }, [question.semitones, selected, store]);
+
+    if (isCorrect) {
+      message.success(t('staffNotation.correct'));
+      autoAdvanceRef.current = window.setTimeout(() => {
+        autoAdvanceRef.current = null;
+        setQuestion(makeQuestion(result.nextStore.range, result.nextStore.allowAccidentals));
+        setSelected(null);
+      }, AUTO_ADVANCE_DELAY_MS);
+    } else {
+      message.error(`${t('staffNotation.intervalWrongAnswer', { answer: question.semitones })}`);
+    }
+  }, [question.semitones, selected, store, t]);
 
   const handleNext = useCallback(() => {
+    if (autoAdvanceRef.current !== null) {
+      window.clearTimeout(autoAdvanceRef.current);
+      autoAdvanceRef.current = null;
+    }
     setQuestion(makeQuestion(store.range, store.allowAccidentals));
     setSelected(null);
   }, [store.allowAccidentals, store.range]);
@@ -311,210 +394,231 @@ export default function IntervalDrill() {
   }, []);
 
   return (
-    <Card
-      title={(
-        <Space>
-          {screens.lg ? (
-            <span style={{ fontSize: 18 }}>🎯</span>
-          ) : (
-            <Button
-              type="text"
-              icon={<MenuOutlined />}
-              onClick={() => triggerOpenDrawer()}
-              style={{ padding: 0 }}
-            />
-          )}
-          <span style={{ fontWeight: 600 }}>{t('staffNotation.intervalDrillTitle')}</span>
-        </Space>
-      )}
-      style={{ marginBottom: 24 }}
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100vh',
+        overflow: 'hidden',
+      }}
     >
-      <Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 16 }}>
-        {t('staffNotation.intervalDrillHint')}
-      </Paragraph>
-
-      <Space wrap style={{ marginBottom: 16 }}>
-        <Tag color="geekblue">{t('staffNotation.intervalRangeValue', { min: store.range[0], max: store.range[1] })}</Tag>
-        {totalAccuracy !== null && (
-          <Tag icon={<TrophyOutlined />} color="gold">
-            {t('staffNotation.accuracy')} {totalAccuracy}%
-          </Tag>
+      <Card
+        title={(
+          <Space>
+            {screens.lg ? (
+              <span style={{ fontSize: 18 }}>🎯</span>
+            ) : (
+              <Button
+                type="text"
+                icon={<MenuOutlined />}
+                onClick={() => triggerOpenDrawer()}
+                style={{ padding: 0 }}
+              />
+            )}
+            <span style={{ fontWeight: 600 }}>{t('staffNotation.intervalDrillTitle')}</span>
+          </Space>
         )}
-        <Progress
-          percent={Math.round((store.range[1] / SEMITONE_MAX) * 100)}
-          size="small"
-          strokeColor="#2563eb"
-          format={() => t('staffNotation.intervalRangeProgress', { max: store.range[1] })}
-          style={{ width: 220 }}
-        />
-      </Space>
-
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={replayQuestion}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            replayQuestion();
-          }
-        }}
         style={{
-          background: '#fafafa',
-          border: '1px solid #f0f0f0',
-          borderRadius: 12,
-          padding: '16px 12px',
-          textAlign: 'center',
-          marginBottom: 20,
-          cursor: 'pointer',
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+          minHeight: 0,
         }}
+        styles={{ body: { flex: 1, overflow: 'hidden auto', display: 'flex', flexDirection: 'column' } }}
       >
-        <Space direction="vertical" size={8} style={{ width: '100%' }}>
-          <Text type="secondary" style={{ fontSize: 13 }}>
-            {t('staffNotation.intervalQuestionPrompt')}
-          </Text>
-          <StaffDisplay
-            notes={question.notes}
-            clef={question.clef}
-            noteDuration="h"
-            width={screens.xl ? 520 : screens.lg ? 440 : screens.md ? 360 : 280}
-            height={190}
-          />
-          <Button type="text" icon={<SoundOutlined />} onClick={(event) => {
-            event.stopPropagation();
-            replayQuestion();
-          }}>
-            {t('staffNotation.intervalReplay')}
-          </Button>
-        </Space>
-      </div>
+        <Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 16, flexShrink: 0 }}>
+          {t('staffNotation.intervalDrillHint')}
+        </Paragraph>
 
-      <div style={{ marginBottom: 12 }}>
-        <Space style={{ width: '100%', justifyContent: 'space-between' }} wrap>
-          <Text strong>{t('staffNotation.intervalRangeLabel')}</Text>
-          <Space size={8} wrap>
-            <Text type="secondary">{t('staffNotation.intervalAccidentalsLabel')}</Text>
-            <Switch
-              checked={store.allowAccidentals}
-              onChange={handleAccidentalToggle}
-              checkedChildren={t('staffNotation.intervalAccidentalsOn')}
-              unCheckedChildren={t('staffNotation.intervalAccidentalsOff')}
+        {/* Scrollable content area */}
+        <div style={{ flex: 1, overflow: 'hidden auto', minHeight: 0 }}>
+          <Space wrap style={{ marginBottom: 16 }}>
+            <Tag color="geekblue">{t('staffNotation.intervalRangeValue', { min: store.range[0], max: store.range[1] })}</Tag>
+            {totalAccuracy !== null && (
+              <Tag icon={<TrophyOutlined />} color="gold">
+                {t('staffNotation.accuracy')} {totalAccuracy}%
+              </Tag>
+            )}
+            <Progress
+              percent={Math.round((store.range[1] / RIGHT_MAX) * 100)}
+              size="small"
+              strokeColor="#2563eb"
+              format={() => t('staffNotation.intervalRangeProgress', { max: store.range[1] })}
+              style={{ width: 220 }}
             />
           </Space>
-          <Popconfirm
-            title={t('staffNotation.resetProgress')}
-            onConfirm={handleReset}
-            okText="OK"
-            cancelText={t('nav.close')}
+
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={replayQuestion}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                replayQuestion();
+              }
+            }}
+            style={{
+              background: '#fafafa',
+              border: '1px solid #f0f0f0',
+              borderRadius: 12,
+              padding: '16px 12px',
+              textAlign: 'center',
+              marginBottom: 20,
+              cursor: 'pointer',
+            }}
           >
-            <Button size="small" icon={<ReloadOutlined />} danger>
-              {t('staffNotation.resetProgress')}
-            </Button>
-          </Popconfirm>
-        </Space>
-      </div>
+            <Space direction="vertical" size={8} style={{ width: '100%' }}>
+              <Text type="secondary" style={{ fontSize: 13 }}>
+                {t('staffNotation.intervalQuestionPrompt')}
+              </Text>
+              <StaffDisplay
+                notes={question.notes}
+                clef={question.clef}
+                noteDuration="h"
+                width={screens.xl ? 520 : screens.lg ? 440 : screens.md ? 360 : 280}
+                height={190}
+              />
+              <Button type="text" icon={<SoundOutlined />} onClick={(event) => {
+                event.stopPropagation();
+                replayQuestion();
+              }}>
+                {t('staffNotation.intervalReplay')}
+              </Button>
+            </Space>
+          </div>
 
-      <Slider
-        range
-        min={SEMITONE_MIN}
-        max={SEMITONE_MAX}
-        step={1}
-        marks={SLIDER_MARKS}
-        value={store.range}
-        onChange={handleRangeChange}
-        styles={{
-          track: { background: 'linear-gradient(90deg, #2563eb 0%, #0ea5e9 100%)' },
-          rail: { background: '#dbeafe' },
-          handle: { borderColor: '#2563eb' },
-        }}
-      />
+          <div style={{ marginBottom: 12 }}>
+            <Space style={{ width: '100%', justifyContent: 'space-between' }} wrap>
+              <Text strong>{t('staffNotation.intervalRangeLabel')}</Text>
+              <Space size={8} wrap>
+                <Text type="secondary">{t('staffNotation.intervalAccidentalsLabel')}</Text>
+                <Switch
+                  checked={store.allowAccidentals}
+                  onChange={handleAccidentalToggle}
+                  checkedChildren={t('staffNotation.intervalAccidentalsOn')}
+                  unCheckedChildren={t('staffNotation.intervalAccidentalsOff')}
+                />
+              </Space>
+              <Popconfirm
+                title={t('staffNotation.resetProgress')}
+                onConfirm={handleReset}
+                okText="OK"
+                cancelText={t('nav.close')}
+              >
+                <Button size="small" icon={<ReloadOutlined />} danger>
+                  {t('staffNotation.resetProgress')}
+                </Button>
+              </Popconfirm>
+            </Space>
+          </div>
 
-      <Space direction="vertical" size={6} style={{ width: '100%', marginBottom: 16 }}>
-        <Text type="secondary" style={{ fontSize: 13 }}>
-          {t('staffNotation.intervalAutoUpgradeHint')}
-        </Text>
-        <Text type="secondary" style={{ fontSize: 13 }}>
-          {t('staffNotation.intervalWindowStatus', {
-            correct: recentCorrect,
-            total: store.recentResults.length,
-            accuracy: recentAccuracy ?? 0,
-          })}
-        </Text>
-        {lastPromotion !== null && (
-          <Tag color="success">{t('staffNotation.intervalPromotionReached', { min: lastPromotion[0], max: lastPromotion[1] })}</Tag>
-        )}
-      </Space>
+          <Slider
+            range
+            min={LEFT_MIN}
+            max={RIGHT_MAX}
+            step={1}
+            marks={SLIDER_MARKS}
+            value={store.range}
+            onChange={handleRangeChange}
+            styles={{
+              track: { background: 'linear-gradient(90deg, #2563eb 0%, #0ea5e9 100%)' },
+              rail: { background: '#dbeafe' },
+              handle: { borderColor: '#2563eb' },
+            }}
+          />
 
+          <Space direction="vertical" size={6} style={{ width: '100%', marginBottom: 16 }}>
+            <Text type="secondary" style={{ fontSize: 13 }}>
+              {t('staffNotation.intervalAutoUpgradeHint')}
+            </Text>
+            <Text type="secondary" style={{ fontSize: 13 }}>
+              {t('staffNotation.intervalWindowStatus', {
+                correct: recentCorrect,
+                total: store.recentResults.length,
+                accuracy: recentAccuracy ?? 0,
+              })}
+            </Text>
+            {lastPromotion !== null && (
+              <Tag color="success">{t('staffNotation.intervalPromotionReached', { min: lastPromotion[0], max: lastPromotion[1] })}</Tag>
+            )}
+          </Space>
+        </div>
+      </Card>
+
+      {/* Fixed bottom answer area */}
       <div
         style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(72px, 1fr))',
-          gap: 10,
-          marginBottom: selected !== null ? 16 : 0,
+          flexShrink: 0,
+          background: '#fff',
+          borderTop: '1px solid #f0f0f0',
+          padding: '12px 16px 16px',
         }}
       >
-        {options.map((option) => {
-          const isCorrect = option === question.semitones;
-          const isSelected = option === selected;
-          let background = '#eff6ff';
-          let borderColor = '#93c5fd';
-          let color = '#1d4ed8';
+        {/* Answer options grid */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(72px, 1fr))',
+            gap: 10,
+            marginBottom: selected !== null && selected !== question.semitones ? 12 : 0,
+          }}
+        >
+          {options.map((option) => {
+            const isCorrect = option === question.semitones;
+            const isSelected = option === selected;
+            let background = '#eff6ff';
+            let borderColor = '#93c5fd';
+            let color = '#1d4ed8';
 
-          if (selected !== null) {
-            if (isCorrect) {
-              background = '#d1fae5';
-              borderColor = '#34d399';
-              color = '#065f46';
-            } else if (isSelected) {
-              background = '#fee2e2';
-              borderColor = '#f87171';
-              color = '#991b1b';
-            } else {
-              background = '#f5f5f5';
-              borderColor = '#d9d9d9';
-              color = '#8c8c8c';
+            if (selected !== null) {
+              if (isCorrect) {
+                background = '#d1fae5';
+                borderColor = '#34d399';
+                color = '#065f46';
+              } else if (isSelected) {
+                background = '#fee2e2';
+                borderColor = '#f87171';
+                color = '#991b1b';
+              } else {
+                background = '#f5f5f5';
+                borderColor = '#d9d9d9';
+                color = '#8c8c8c';
+              }
             }
-          }
 
-          return (
-            <button
-              key={option}
-              type="button"
-              onClick={() => handleAnswer(option)}
-              style={{
-                padding: '14px 0',
-                borderRadius: 12,
-                border: `2px solid ${borderColor}`,
-                background,
-                color,
-                fontSize: 22,
-                fontWeight: 700,
-                cursor: selected === null ? 'pointer' : 'default',
-                transition: 'all 0.15s',
-              }}
-              disabled={selected !== null}
-            >
-              {option}
-            </button>
-          );
-        })}
-      </div>
+            return (
+              <button
+                key={option}
+                type="button"
+                onClick={() => handleAnswer(option)}
+                style={{
+                  padding: '14px 0',
+                  borderRadius: 12,
+                  border: `2px solid ${borderColor}`,
+                  background,
+                  color,
+                  fontSize: 22,
+                  fontWeight: 700,
+                  cursor: selected === null ? 'pointer' : 'default',
+                  transition: 'all 0.15s',
+                }}
+                disabled={selected !== null}
+              >
+                {option}
+              </button>
+            );
+          })}
+        </div>
 
-      {selected !== null && (
-        <Space direction="vertical" size={12} style={{ width: '100%', alignItems: 'center' }}>
-          <Tag
-            color={selected === question.semitones ? 'success' : 'error'}
-            style={{ fontSize: 14, padding: '6px 16px', borderRadius: 8 }}
-          >
-            {selected === question.semitones
-              ? `✓ ${t('staffNotation.correct')}`
-              : `✗ ${t('staffNotation.intervalWrongAnswer', { answer: question.semitones })}`}
-          </Tag>
-          <Button type="primary" size="large" onClick={handleNext}>
+        {/* Next button (shown only after wrong answer) */}
+        {selected !== null && selected !== question.semitones && (
+          <Button type="primary" block size="large" onClick={handleNext}>
             {t('staffNotation.nextQuestion')} →
           </Button>
-        </Space>
-      )}
-    </Card>
+        )}
+      </div>
+    </div>
   );
 }

@@ -17,6 +17,7 @@ import {
   Switch,
   Tag,
   Typography,
+  message,
 } from 'antd';
 import { ReloadOutlined, SoundOutlined, TrophyOutlined, MenuOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
@@ -26,11 +27,15 @@ const { Paragraph, Text } = Typography;
 const { useBreakpoint } = Grid;
 
 const STORAGE_KEY = 'ezmusic-note-solfege-interval-drill';
-const SEMITONE_MIN = 1;
-const SEMITONE_MAX = 12;
-const DEFAULT_RANGE: [number, number] = [1, 3];
+const LEFT_MIN = 1;
+const LEFT_MAX = 10;
+const RIGHT_MIN = 3;
+const RIGHT_MAX = 12;
+const DEFAULT_RANGE: [number, number] = [3, 5];
 const NOTE_PLAY_DURATION = 0.8;
 const NOTE_GAP_MS = 120;
+/** Delay before auto-advancing to next question on correct answer */
+const AUTO_ADVANCE_DELAY_MS = 1000;
 
 const PITCH_CLASSES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 const NATURAL_PITCH_CLASSES = new Set(['C', 'D', 'E', 'F', 'G', 'A', 'B']);
@@ -42,7 +47,7 @@ const NOTE_RANGES: Record<'low' | 'high', { min: number; max: number }> = {
 };
 
 const SLIDER_MARKS = Object.fromEntries(
-  Array.from({ length: SEMITONE_MAX }, (_, index) => {
+  Array.from({ length: RIGHT_MAX }, (_, index) => {
     const value = index + 1;
     return [value, String(value)];
   }),
@@ -67,16 +72,24 @@ function wait(ms: number): Promise<void> {
   });
 }
 
-function clampSemitone(value: number): number {
-  return Math.min(SEMITONE_MAX, Math.max(SEMITONE_MIN, Math.round(value)));
+function clampLeft(value: number): number {
+  return Math.min(LEFT_MAX, Math.max(LEFT_MIN, Math.round(value)));
+}
+
+function clampRight(value: number): number {
+  return Math.min(RIGHT_MAX, Math.max(RIGHT_MIN, Math.round(value)));
 }
 
 function normalizeRange(value: unknown): [number, number] {
   if (!Array.isArray(value) || value.length !== 2 || !value.every((item) => typeof item === 'number')) {
     return DEFAULT_RANGE;
   }
-  const low = clampSemitone(Math.min(value[0], value[1]));
-  const high = clampSemitone(Math.max(value[0], value[1]));
+  const low = clampLeft(Math.min(value[0], value[1]));
+  let high = clampRight(Math.max(value[0], value[1]));
+  // Ensure at least 3 distinct values in range (width >= 2)
+  if (high - low < 2) {
+    high = Math.min(RIGHT_MAX, low + 2);
+  }
   return [low, high];
 }
 
@@ -182,7 +195,7 @@ function applyAnswerResult(store: IntervalDrillStore, isCorrect: boolean): {
 
   if (recentResults.length === 20) {
     const correctCount = recentResults.filter(Boolean).length;
-    if (correctCount >= 18 && store.range[1] < SEMITONE_MAX) {
+    if (correctCount >= 18 && store.range[1] < RIGHT_MAX) {
       const promotedRange: [number, number] = [store.range[0], store.range[1] + 1];
       return {
         nextStore: {
@@ -246,24 +259,33 @@ export default function IntervalDrill() {
   const [selected, setSelected] = useState<number | null>(null);
   const [lastPromotion, setLastPromotion] = useState<[number, number] | null>(null);
   const playbackIdRef = useRef(0);
+  const autoAdvanceRef = useRef<number | null>(null);
+  const rangeDebounceRef = useRef<number | null>(null);
 
   const options = useMemo(() => {
     const all = buildOptions(store.range);
-    if (all.length <= 4) return all;
-    // Keep the correct answer, fill the rest with random picks
     const correct = question.semitones;
     const others = all.filter((v) => v !== correct);
-    // Fisher-Yates shuffle on others, then take 3
+
+    // Fisher-Yates shuffle on others, then take up to 2
     for (let i = others.length - 1; i > 0; i -= 1) {
       const j = Math.floor(Math.random() * (i + 1));
       [others[i], others[j]] = [others[j], others[i]];
     }
-    const picked = [correct, ...others.slice(0, 3)];
-    // Shuffle again so the correct answer isn't always first
-    for (let i = picked.length - 1; i > 0; i -= 1) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [picked[i], picked[j]] = [picked[j], picked[i]];
+    const picked = [correct, ...others.slice(0, 2)];
+
+    // If range has fewer than 3 values, fill with nearby semitones outside range
+    let offset = 1;
+    while (picked.length < 3) {
+      const below = correct - offset;
+      const above = correct + offset;
+      if (below >= 1 && !picked.includes(below)) picked.push(below);
+      if (picked.length < 3 && above <= 12 && !picked.includes(above)) picked.push(above);
+      offset += 1;
     }
+
+    // Sort ascending so options display left-to-right
+    picked.sort((a, b) => a - b);
     return picked;
   }, [store.range, question.semitones]);
   const recentCorrect = useMemo(
@@ -302,6 +324,18 @@ export default function IntervalDrill() {
     replayQuestion();
   }, [replayQuestion]);
 
+  // Clear timeouts on unmount
+  useEffect(() => {
+    return () => {
+      if (autoAdvanceRef.current !== null) {
+        window.clearTimeout(autoAdvanceRef.current);
+      }
+      if (rangeDebounceRef.current !== null) {
+        window.clearTimeout(rangeDebounceRef.current);
+      }
+    };
+  }, []);
+
   const handleRangeChange = useCallback((value: number | number[]) => {
     if (!Array.isArray(value) || value.length !== 2) return;
 
@@ -312,10 +346,19 @@ export default function IntervalDrill() {
       recentResults: [],
     };
 
+    // Update store immediately for responsive slider, but debounce
+    // question generation to avoid rapid-fire audio playback while dragging.
     setStore(nextStore);
-    setQuestion(makeQuestion(nextRange, store.allowAccidentals));
     setSelected(null);
     setLastPromotion(null);
+
+    if (rangeDebounceRef.current !== null) {
+      window.clearTimeout(rangeDebounceRef.current);
+    }
+    rangeDebounceRef.current = window.setTimeout(() => {
+      rangeDebounceRef.current = null;
+      setQuestion(makeQuestion(nextRange, store.allowAccidentals));
+    }, 300);
   }, [store]);
 
   const handleAccidentalToggle = useCallback((checked: boolean) => {
@@ -334,13 +377,35 @@ export default function IntervalDrill() {
   const handleAnswer = useCallback((value: number) => {
     if (selected !== null) return;
 
+    // Clear any pending auto-advance
+    if (autoAdvanceRef.current !== null) {
+      window.clearTimeout(autoAdvanceRef.current);
+      autoAdvanceRef.current = null;
+    }
+
     setSelected(value);
-    const result = applyAnswerResult(store, value === question.semitones);
+    const isCorrect = value === question.semitones;
+    const result = applyAnswerResult(store, isCorrect);
     setStore(result.nextStore);
     setLastPromotion(result.promotedRange);
-  }, [question.semitones, selected, store]);
+
+    if (isCorrect) {
+      message.success(t('noteSolfege.intervalSpeedDrillCorrect'));
+      autoAdvanceRef.current = window.setTimeout(() => {
+        autoAdvanceRef.current = null;
+        setQuestion(makeQuestion(result.nextStore.range, result.nextStore.allowAccidentals));
+        setSelected(null);
+      }, AUTO_ADVANCE_DELAY_MS);
+    } else {
+      message.error(`${t('noteSolfege.intervalSpeedDrillWrongAnswer', { answer: question.semitones })}`);
+    }
+  }, [question.semitones, selected, store, t]);
 
   const handleNext = useCallback(() => {
+    if (autoAdvanceRef.current !== null) {
+      window.clearTimeout(autoAdvanceRef.current);
+      autoAdvanceRef.current = null;
+    }
     setQuestion(makeQuestion(store.range, store.allowAccidentals));
     setSelected(null);
   }, [store.allowAccidentals, store.range]);
@@ -354,229 +419,248 @@ export default function IntervalDrill() {
   }, []);
 
   return (
-    <Card
-      title={
-        <Space>
-          {screens.lg ? (
-            <span style={{ fontSize: 18 }}>⚡</span>
-          ) : (
-            <Button
-              type="text"
-              icon={<MenuOutlined />}
-              onClick={() => triggerOpenDrawer()}
-              style={{ padding: 0 }}
-            />
-          )}
-          <span style={{ fontWeight: 600 }}>{t('noteSolfege.intervalSpeedDrill')}</span>
-        </Space>
-      }
-      style={{ marginBottom: 24 }}
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100vh',
+        overflow: 'hidden',
+      }}
     >
-      <Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 16 }}>
-        {t('noteSolfege.intervalSpeedDrillHint')}
-      </Paragraph>
-
-      {/* Stats row */}
-      <Space wrap style={{ marginBottom: 16 }}>
-        <Tag color="geekblue">
-          {t('noteSolfege.intervalSpeedDrillRangeValue', { min: store.range[0], max: store.range[1] })}
-        </Tag>
-        {totalAccuracy !== null && (
-          <Tag icon={<TrophyOutlined />} color="gold">
-            {t('noteSolfege.intervalSpeedDrillAccuracy')} {totalAccuracy}%
-          </Tag>
-        )}
-        <Progress
-          percent={Math.round((store.range[1] / SEMITONE_MAX) * 100)}
-          size="small"
-          strokeColor="#7c3aed"
-          format={() => t('noteSolfege.intervalSpeedDrillRangeProgress', { max: store.range[1] })}
-          style={{ width: 220 }}
-        />
-      </Space>
-
-      {/* Note display area */}
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={replayQuestion}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            replayQuestion();
-          }
-        }}
+      <Card
+        title={
+          <Space>
+            {screens.lg ? (
+              <span style={{ fontSize: 18 }}>⚡</span>
+            ) : (
+              <Button
+                type="text"
+                icon={<MenuOutlined />}
+                onClick={() => triggerOpenDrawer()}
+                style={{ padding: 0 }}
+              />
+            )}
+            <span style={{ fontWeight: 600 }}>{t('noteSolfege.intervalSpeedDrill')}</span>
+          </Space>
+        }
         style={{
-          background: '#fafafa',
-          border: '1px solid #f0f0f0',
-          borderRadius: 12,
-          padding: '24px 12px',
-          textAlign: 'center',
-          marginBottom: 20,
-          cursor: 'pointer',
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+          minHeight: 0,
         }}
+        styles={{ body: { flex: 1, overflow: 'hidden auto', display: 'flex', flexDirection: 'column' } }}
       >
-        <Space direction="vertical" size={16} style={{ width: '100%' }}>
-          <Text type="secondary" style={{ fontSize: 13 }}>
-            {t('noteSolfege.intervalSpeedDrillQuestionPrompt')}
-          </Text>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: screens.xs ? 20 : 32,
-              flexWrap: 'wrap',
-            }}
-          >
-            <NoteNameBox note={question.notes[0]} />
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 28, color: '#c4b5fd', lineHeight: 1, marginBottom: 4 }}>↔</div>
-            </div>
-            <NoteNameBox note={question.notes[1]} />
-          </div>
-          <Button type="text" icon={<SoundOutlined />} onClick={(event) => {
-            event.stopPropagation();
-            replayQuestion();
-          }}>
-            {t('noteSolfege.intervalSpeedDrillReplay')}
-          </Button>
-        </Space>
-      </div>
+        <Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 16, flexShrink: 0 }}>
+          {t('noteSolfege.intervalSpeedDrillHint')}
+        </Paragraph>
 
-      {/* Controls row */}
-      <div style={{ marginBottom: 12 }}>
-        <Space style={{ width: '100%', justifyContent: 'space-between' }} wrap>
-          <Text strong>{t('noteSolfege.intervalSpeedDrillRangeLabel')}</Text>
-          <Space size={8} wrap>
-            <Text type="secondary">{t('noteSolfege.intervalSpeedDrillAccidentalsLabel')}</Text>
-            <Switch
-              checked={store.allowAccidentals}
-              onChange={handleAccidentalToggle}
-              checkedChildren={t('noteSolfege.intervalSpeedDrillAccidentalsOn')}
-              unCheckedChildren={t('noteSolfege.intervalSpeedDrillAccidentalsOff')}
+        {/* Scrollable content area */}
+        <div style={{ flex: 1, overflow: 'hidden auto', minHeight: 0 }}>
+          {/* Stats row */}
+          <Space wrap style={{ marginBottom: 16 }}>
+            <Tag color="geekblue">
+              {t('noteSolfege.intervalSpeedDrillRangeValue', { min: store.range[0], max: store.range[1] })}
+            </Tag>
+            {totalAccuracy !== null && (
+              <Tag icon={<TrophyOutlined />} color="gold">
+                {t('noteSolfege.intervalSpeedDrillAccuracy')} {totalAccuracy}%
+              </Tag>
+            )}
+            <Progress
+              percent={Math.round((store.range[1] / RIGHT_MAX) * 100)}
+              size="small"
+              strokeColor="#7c3aed"
+              format={() => t('noteSolfege.intervalSpeedDrillRangeProgress', { max: store.range[1] })}
+              style={{ width: 220 }}
             />
           </Space>
-          <Popconfirm
-            title={t('noteSolfege.intervalSpeedDrillResetProgress')}
-            onConfirm={handleReset}
-            okText="OK"
-            cancelText={t('nav.close')}
+
+          {/* Note display area */}
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={replayQuestion}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                replayQuestion();
+              }
+            }}
+            style={{
+              background: '#fafafa',
+              border: '1px solid #f0f0f0',
+              borderRadius: 12,
+              padding: '24px 12px',
+              textAlign: 'center',
+              marginBottom: 20,
+              cursor: 'pointer',
+            }}
           >
-            <Button size="small" icon={<ReloadOutlined />} danger>
-              {t('noteSolfege.intervalSpeedDrillResetProgress')}
-            </Button>
-          </Popconfirm>
-        </Space>
-      </div>
+            <Space direction="vertical" size={16} style={{ width: '100%' }}>
+              <Text type="secondary" style={{ fontSize: 13 }}>
+                {t('noteSolfege.intervalSpeedDrillQuestionPrompt')}
+              </Text>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: screens.xs ? 20 : 32,
+                  flexWrap: 'wrap',
+                }}
+              >
+                <NoteNameBox note={question.notes[0]} />
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 28, color: '#c4b5fd', lineHeight: 1, marginBottom: 4 }}>↔</div>
+                </div>
+                <NoteNameBox note={question.notes[1]} />
+              </div>
+              <Button type="text" icon={<SoundOutlined />} onClick={(event) => {
+                event.stopPropagation();
+                replayQuestion();
+              }}>
+                {t('noteSolfege.intervalSpeedDrillReplay')}
+              </Button>
+            </Space>
+          </div>
 
-      {/* Range slider */}
-      <Slider
-        range
-        min={SEMITONE_MIN}
-        max={SEMITONE_MAX}
-        step={1}
-        marks={SLIDER_MARKS}
-        value={store.range}
-        onChange={handleRangeChange}
-        styles={{
-          track: { background: 'linear-gradient(90deg, #7c3aed 0%, #a78bfa 100%)' },
-          rail: { background: '#ede9fe' },
-          handle: { borderColor: '#7c3aed' },
-        }}
-      />
+          {/* Controls row */}
+          <div style={{ marginBottom: 12 }}>
+            <Space style={{ width: '100%', justifyContent: 'space-between' }} wrap>
+              <Text strong>{t('noteSolfege.intervalSpeedDrillRangeLabel')}</Text>
+              <Space size={8} wrap>
+                <Text type="secondary">{t('noteSolfege.intervalSpeedDrillAccidentalsLabel')}</Text>
+                <Switch
+                  checked={store.allowAccidentals}
+                  onChange={handleAccidentalToggle}
+                  checkedChildren={t('noteSolfege.intervalSpeedDrillAccidentalsOn')}
+                  unCheckedChildren={t('noteSolfege.intervalSpeedDrillAccidentalsOff')}
+                />
+              </Space>
+              <Popconfirm
+                title={t('noteSolfege.intervalSpeedDrillResetProgress')}
+                onConfirm={handleReset}
+                okText="OK"
+                cancelText={t('nav.close')}
+              >
+                <Button size="small" icon={<ReloadOutlined />} danger>
+                  {t('noteSolfege.intervalSpeedDrillResetProgress')}
+                </Button>
+              </Popconfirm>
+            </Space>
+          </div>
 
-      {/* Auto-upgrade status */}
-      <Space direction="vertical" size={6} style={{ width: '100%', marginBottom: 16 }}>
-        <Text type="secondary" style={{ fontSize: 13 }}>
-          {t('noteSolfege.intervalSpeedDrillAutoUpgradeHint')}
-        </Text>
-        <Text type="secondary" style={{ fontSize: 13 }}>
-          {t('noteSolfege.intervalSpeedDrillWindowStatus', {
-            correct: recentCorrect,
-            total: store.recentResults.length,
-            accuracy: recentAccuracy ?? 0,
-          })}
-        </Text>
-        {lastPromotion !== null && (
-          <Tag color="success">
-            {t('noteSolfege.intervalSpeedDrillPromotionReached', { min: lastPromotion[0], max: lastPromotion[1] })}
-          </Tag>
-        )}
-      </Space>
+          {/* Range slider */}
+          <Slider
+            range
+            min={LEFT_MIN}
+            max={RIGHT_MAX}
+            step={1}
+            marks={SLIDER_MARKS}
+            value={store.range}
+            onChange={handleRangeChange}
+            styles={{
+              track: { background: 'linear-gradient(90deg, #7c3aed 0%, #a78bfa 100%)' },
+              rail: { background: '#ede9fe' },
+              handle: { borderColor: '#7c3aed' },
+            }}
+          />
 
-      {/* Answer options grid */}
+          {/* Auto-upgrade status */}
+          <Space direction="vertical" size={6} style={{ width: '100%', marginBottom: 16 }}>
+            <Text type="secondary" style={{ fontSize: 13 }}>
+              {t('noteSolfege.intervalSpeedDrillAutoUpgradeHint')}
+            </Text>
+            <Text type="secondary" style={{ fontSize: 13 }}>
+              {t('noteSolfege.intervalSpeedDrillWindowStatus', {
+                correct: recentCorrect,
+                total: store.recentResults.length,
+                accuracy: recentAccuracy ?? 0,
+              })}
+            </Text>
+            {lastPromotion !== null && (
+              <Tag color="success">
+                {t('noteSolfege.intervalSpeedDrillPromotionReached', { min: lastPromotion[0], max: lastPromotion[1] })}
+              </Tag>
+            )}
+          </Space>
+        </div>
+      </Card>
+
+      {/* Fixed bottom answer area */}
       <div
         style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(72px, 1fr))',
-          gap: 10,
-          marginBottom: selected !== null ? 16 : 0,
+          flexShrink: 0,
+          background: '#fff',
+          borderTop: '1px solid #f0f0f0',
+          padding: '12px 16px 16px',
         }}
       >
-        {options.map((option) => {
-          const isCorrect = option === question.semitones;
-          const isSelected = option === selected;
-          let background = '#f5f3ff';
-          let borderColor = '#c4b5fd';
-          let color = '#5b21b6';
+        {/* Answer options grid */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(72px, 1fr))',
+            gap: 10,
+            marginBottom: selected !== null && selected !== question.semitones ? 12 : 0,
+          }}
+        >
+          {options.map((option) => {
+            const isCorrect = option === question.semitones;
+            const isSelected = option === selected;
+            let background = '#f5f3ff';
+            let borderColor = '#c4b5fd';
+            let color = '#5b21b6';
 
-          if (selected !== null) {
-            if (isCorrect) {
-              background = '#d1fae5';
-              borderColor = '#34d399';
-              color = '#065f46';
-            } else if (isSelected) {
-              background = '#fee2e2';
-              borderColor = '#f87171';
-              color = '#991b1b';
-            } else {
-              background = '#f5f5f5';
-              borderColor = '#d9d9d9';
-              color = '#8c8c8c';
+            if (selected !== null) {
+              if (isCorrect) {
+                background = '#d1fae5';
+                borderColor = '#34d399';
+                color = '#065f46';
+              } else if (isSelected) {
+                background = '#fee2e2';
+                borderColor = '#f87171';
+                color = '#991b1b';
+              } else {
+                background = '#f5f5f5';
+                borderColor = '#d9d9d9';
+                color = '#8c8c8c';
+              }
             }
-          }
 
-          return (
-            <button
-              key={option}
-              type="button"
-              onClick={() => handleAnswer(option)}
-              style={{
-                padding: '14px 0',
-                borderRadius: 12,
-                border: `2px solid ${borderColor}`,
-                background,
-                color,
-                fontSize: 22,
-                fontWeight: 700,
-                cursor: selected === null ? 'pointer' : 'default',
-                transition: 'all 0.15s',
-              }}
-              disabled={selected !== null}
-            >
-              {option}
-            </button>
-          );
-        })}
-      </div>
+            return (
+              <button
+                key={option}
+                type="button"
+                onClick={() => handleAnswer(option)}
+                style={{
+                  padding: '14px 0',
+                  borderRadius: 12,
+                  border: `2px solid ${borderColor}`,
+                  background,
+                  color,
+                  fontSize: 22,
+                  fontWeight: 700,
+                  cursor: selected === null ? 'pointer' : 'default',
+                  transition: 'all 0.15s',
+                }}
+                disabled={selected !== null}
+              >
+                {option}
+              </button>
+            );
+          })}
+        </div>
 
-      {/* Feedback + next */}
-      {selected !== null && (
-        <Space direction="vertical" size={12} style={{ width: '100%', alignItems: 'center' }}>
-          <Tag
-            color={selected === question.semitones ? 'success' : 'error'}
-            style={{ fontSize: 14, padding: '6px 16px', borderRadius: 8 }}
-          >
-            {selected === question.semitones
-              ? `✓ ${t('noteSolfege.intervalSpeedDrillCorrect')}`
-              : `✗ ${t('noteSolfege.intervalSpeedDrillWrongAnswer', { answer: question.semitones })}`}
-          </Tag>
-          <Button type="primary" size="large" onClick={handleNext}>
+        {/* Next button (shown only after wrong answer) */}
+        {selected !== null && selected !== question.semitones && (
+          <Button type="primary" block size="large" onClick={handleNext}>
             {t('noteSolfege.intervalSpeedDrillNextQuestion')} →
           </Button>
-        </Space>
-      )}
-    </Card>
+        )}
+      </div>
+    </div>
   );
 }
