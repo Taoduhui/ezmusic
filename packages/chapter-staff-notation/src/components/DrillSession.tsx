@@ -50,6 +50,10 @@ const NOTE_PLAY_DURATION = 0.8;
 const ANSWER_FEEDBACK_DELAY_MS = NOTE_PLAY_DURATION * 1000 + 150;
 /** Delay before auto-advancing to next question on correct answer */
 const AUTO_ADVANCE_DELAY_MS = 1200;
+/** Delay for wrong answer: playNote resolves immediately (Tone.js schedules playback),
+ *  so the actual wait is gap(ANSWER_FEEDBACK_DELAY_MS) + correctNote(NOTE_PLAY_DURATION) + buffer */
+const WRONG_ANSWER_AUTO_ADVANCE_DELAY_MS =
+  ANSWER_FEEDBACK_DELAY_MS + NOTE_PLAY_DURATION * 1000 + 400;
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => {
@@ -484,14 +488,15 @@ export default function DrillSession() {
         setStreak(0);
         // Show toast with correct answer
         message.error(`${t('staffNotation.wrong')} ${currentNote}`);
+        // Auto-advance after feedback plays (longer delay for wrong answer audio)
+        autoAdvanceRef.current = window.setTimeout(() => {
+          autoAdvanceRef.current = null;
+          nextQuestion(currentNote ?? undefined);
+        }, WRONG_ANSWER_AUTO_ADVANCE_DELAY_MS);
       }
     },
     [currentNote, chosen, playAnswerFeedback, t, nextQuestion],
   );
-
-  const handleNext = useCallback(() => {
-    nextQuestion(currentNote ?? undefined);
-  }, [nextQuestion, currentNote]);
 
   const handleReset = useCallback(() => {
     // Clear any pending auto-advance
