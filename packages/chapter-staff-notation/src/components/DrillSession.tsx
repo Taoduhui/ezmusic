@@ -41,7 +41,7 @@ import {
 import StaffDisplay from './StaffDisplay';
 import { PianoKeyboard, type KeyHighlight } from '@ezmusic/shared';
 
-const { Text, Paragraph } = Typography;
+const { Text } = Typography;
 const { useBreakpoint } = Grid;
 
 const STORAGE_KEY = 'ezmusic-staff-drill-progress';
@@ -223,13 +223,8 @@ interface ProgressBoardProps {
 }
 
 function ProgressBoard({ pool, noteProgress, currentNote }: ProgressBoardProps) {
-  const { t } = useTranslation();
-
   return (
     <div>
-      <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
-        {t('staffNotation.masteryRequired')}
-      </Text>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(44px, 1fr))', gap: 6 }}>
         {pool.map((note) => {
           const p = noteProgress[note];
@@ -533,8 +528,6 @@ export default function DrillSession() {
 
   const masteredCount = pool.filter((n) => store.noteProgress[n]?.mastered).length;
   const accuracy = sessionTotal > 0 ? Math.round((sessionCorrect / sessionTotal) * 100) : null;
-  const showNextButton = chosen !== null && chosen !== currentNote;
-
   return (
     <div
       style={{
@@ -571,39 +564,6 @@ export default function DrillSession() {
         }}
         styles={{ body: { flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' } }}
       >
-        {/* Fixed header inside card body */}
-        <div style={{ flexShrink: 0 }}>
-          <Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 16 }}>
-            {t('staffNotation.drillHint')}
-          </Paragraph>
-
-          {/* Training mode & stage selector */}
-          <Space style={{ marginBottom: 16 }} wrap size={12}>
-            <Space size={4}>
-              <Text style={{ fontSize: 13 }}>{t('staffNotation.trainingMode')}:</Text>
-              <Select
-                value={drillMode}
-                onChange={(v) => setDrillMode(v)}
-                options={[
-                  { value: 'note-name', label: t('staffNotation.trainingModeNoteName') },
-                  { value: 'piano', label: t('staffNotation.trainingModePiano') },
-                  { value: 'piano-no-labels', label: t('staffNotation.trainingModePianoNoLabels') },
-                ]}
-                style={{ minWidth: 180 }}
-                size="small"
-              />
-            </Space>
-            <Space size={4}>
-              <Text style={{ fontSize: 13 }}>{t('staffNotation.trainingStage')}:</Text>
-              <StageSelector
-                current={stage}
-                onSelect={startStage}
-                noteProgress={store.noteProgress}
-              />
-            </Space>
-          </Space>
-        </div>
-
         {/* Scrollable body content */}
         <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
           {/* Collapsible progress section */}
@@ -615,7 +575,7 @@ export default function DrillSession() {
               {
                 key: 'progress',
                 label: (
-                  <Space size={8}>
+                  <Space size={8} wrap>
                     <Text style={{ fontSize: 13 }}>
                       {t('staffNotation.stageProgress', { done: masteredCount, total: pool.length })}
                     </Text>
@@ -625,16 +585,41 @@ export default function DrillSession() {
                       style={{ width: 120 }}
                       strokeColor={masteredCount === pool.length ? '#059669' : '#7c3aed'}
                     />
+                    {accuracy !== null && (
+                      <Tag icon={<TrophyOutlined />} color="gold">
+                        {t('staffNotation.accuracy')} {accuracy}%
+                      </Tag>
+                    )}
                   </Space>
                 ),
                 children: (
                   <div>
+                    {/* Training mode & stage selector */}
+                    <Space style={{ marginBottom: 12 }} wrap size={12}>
+                      <Space size={4}>
+                        <Text style={{ fontSize: 13 }}>{t('staffNotation.trainingMode')}:</Text>
+                        <Select
+                          value={drillMode}
+                          onChange={(v) => setDrillMode(v)}
+                          options={[
+                            { value: 'note-name', label: t('staffNotation.trainingModeNoteName') },
+                            { value: 'piano', label: t('staffNotation.trainingModePiano') },
+                            { value: 'piano-no-labels', label: t('staffNotation.trainingModePianoNoLabels') },
+                          ]}
+                          style={{ minWidth: 180 }}
+                          size="small"
+                        />
+                      </Space>
+                      <Space size={4}>
+                        <Text style={{ fontSize: 13 }}>{t('staffNotation.trainingStage')}:</Text>
+                        <StageSelector
+                          current={stage}
+                          onSelect={startStage}
+                          noteProgress={store.noteProgress}
+                        />
+                      </Space>
+                    </Space>
                     <Space style={{ marginBottom: 12 }} wrap>
-                      {accuracy !== null && (
-                        <Tag icon={<TrophyOutlined />} color="gold">
-                          {t('staffNotation.accuracy')} {accuracy}%
-                        </Tag>
-                      )}
                       {streak >= 3 && (
                         <Tag icon={<FireOutlined />} color="red">
                           {t('staffNotation.streak', { n: streak })}
@@ -771,18 +756,6 @@ export default function DrillSession() {
           />
         )}
 
-        {/* Next button (shown only after wrong answer) */}
-        {showNextButton && (
-          <Button
-            type="primary"
-            block
-            size="large"
-            style={{ marginTop: 12 }}
-            onClick={handleNext}
-          >
-            {t('staffNotation.nextQuestion')} →
-          </Button>
-        )}
       </div>
     </div>
   );
