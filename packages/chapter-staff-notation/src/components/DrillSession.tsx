@@ -323,6 +323,16 @@ export default function DrillSession() {
     [pool],
   );
 
+  // Detect single-octave keyboard for fillWidth mode
+  const isSingleOctave = useMemo(() => {
+    const minMatch = /\d+$/.exec(keyboardRange.min);
+    const maxMatch = /\d+$/.exec(keyboardRange.max);
+    if (!minMatch || !maxMatch) return false;
+    const minOct = parseInt(minMatch[0], 10);
+    const maxOct = parseInt(maxMatch[0], 10);
+    return maxOct - minOct <= 1;
+  }, [keyboardRange]);
+
   // Answer highlights for piano mode keyboard
   const keyboardHighlights = useMemo<KeyHighlight[]>(() => {
     if (chosen === null) return [];
@@ -753,6 +763,8 @@ export default function DrillSession() {
             highlightKeys={keyboardHighlights}
             disabled={chosen !== null}
             showNoteLabels={drillMode === 'piano'}
+            fillWidth={isSingleOctave}
+            maxHeight={200}
           />
         )}
 

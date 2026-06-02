@@ -6,6 +6,7 @@
  *   1. Full mode — labels, scale highlighting, tonic indicator (for note-solfege chapter)
  *   2. Simplified mode — no labels/inScaleSet → plain note-name keys (for drill training)
  */
+import { useRef, useState, useEffect, useCallback } from 'react';
 import { Tooltip, Typography } from 'antd';
 import type { NoteLabel } from '../music/theory';
 
@@ -128,6 +129,13 @@ export interface PianoKeyboardProps {
   disabled?: boolean;
   /** Show pitch-class labels on keys (default true). Set false for blind training. */
   showNoteLabels?: boolean;
+  /**
+   * When true, the keyboard fills the available container width and scales
+   * height proportionally. Useful for single-octave keyboards.
+   */
+  fillWidth?: boolean;
+  /** Maximum keyboard height in px when fillWidth is active. No limit when unset. */
+  maxHeight?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -170,6 +178,8 @@ export default function PianoKeyboard({
   highlightKeys,
   disabled = false,
   showNoteLabels = true,
+  fillWidth = false,
+  maxHeight,
 }: PianoKeyboardProps) {
   const keys = noteRange
     ? generatePianoKeys(noteRange.min, noteRange.max)
@@ -180,7 +190,7 @@ export default function PianoKeyboard({
 
   // Offset all positions so the leftmost white key starts at 0
   const minWhite = whiteKeys.length > 0 ? whiteKeys[0].whiteIndex! : 0;
-  const totalW = (whiteKeys.length > 0 ? whiteKeys[whiteKeys.length - 1].whiteIndex! - minWhite + 1 : 0) * WHITE_KEY_W;
+  const naturalW = (whiteKeys.length > 0 ? whiteKeys[whiteKeys.length - 1].whiteIndex! - minWhite + 1 : 0) * WHITE_KEY_W;
 
   // Build highlight lookup
   const hlMap = new Map<string, KeyHighlightState>();
@@ -193,9 +203,59 @@ export default function PianoKeyboard({
   const hasLabels = labels != null;
   const hasScale = inScaleSet != null;
 
+  // -------------------------------------------------------------------------
+  // fillWidth: measure container and scale to fit
+  // -------------------------------------------------------------------------
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [scale, setScale] = useState(1);
+
+  const updateScale = useCallback(() => {
+    if (!fillWidth || !containerRef.current) return;
+    const availableW = containerRef.current.clientWidth;
+    if (availableW > 0 && naturalW > 0) {
+      let s = availableW / naturalW;
+      // Cap by maxHeight if specified
+      if (maxHeight && maxHeight > 0) {
+        const heightBasedMax = maxHeight / WHITE_KEY_H;
+        s = Math.min(s, heightBasedMax);
+      }
+      setScale(s);
+    }
+  }, [fillWidth, naturalW, maxHeight]);
+
+  useEffect(() => {
+    if (!fillWidth) {
+      setScale(1);
+      return;
+    }
+    updateScale();
+    const observer = new ResizeObserver(() => {
+      updateScale();
+    });
+    const el = containerRef.current;
+    if (el) observer.observe(el);
+    return () => observer.disconnect();
+  }, [fillWidth, updateScale]);
+
+  // Scaled dimensions
+  const sWk = WHITE_KEY_W * scale;
+  const sWkH = WHITE_KEY_H * scale;
+  const sBkW = BLACK_KEY_W * scale;
+  const sBkH = BLACK_KEY_H * scale;
+  const totalW = naturalW * scale;
+  // Font sizes scale proportionally, but cap at reasonable values
+  const whiteFontSize = Math.round(12 * scale);
+  const blackFontSize = Math.round(10 * scale);
+  const solfegeWhite = Math.round(10 * scale);
+  const solfegeBlack = Math.round(9 * scale);
+  const tonicDotSize = Math.round(6 * scale);
+
   return (
-    <div style={{ overflowX: 'auto', paddingBottom: 8 }}>
-      <div style={{ position: 'relative', width: totalW, height: WHITE_KEY_H, userSelect: 'none', margin: '0 auto' }}>
+    <div
+      ref={containerRef}
+      style={{ overflowX: fillWidth && scale > 1 ? 'hidden' : 'auto', paddingBottom: 8 }}
+    >
+      <div style={{ position: 'relative', width: totalW, height: sWkH, userSelect: 'none', margin: '0 auto' }}>
         {/* White keys */}
         {whiteKeys.map((k) => {
           const label = labels?.get(k.pitchClass);
@@ -220,13 +280,13 @@ export default function PianoKeyboard({
                 }}
                 style={{
                   position: 'absolute',
-                  left: (k.whiteIndex! - minWhite) * WHITE_KEY_W,
+                  left: (k.whiteIndex! - minWhite) * sWk,
                   top: 0,
-                  width: WHITE_KEY_W - 2,
-                  height: WHITE_KEY_H,
+                  width: sWk - Math.max(2, 2 * scale),
+                  height: sWkH,
                   background: bg,
                   border: `1px solid ${border}`,
-                  borderRadius: '0 0 8px 8px',
+                  borderRadius: `0 0 ${Math.round(8 * scale)}px ${Math.round(8 * scale)}px`,
                   cursor: disabled ? 'default' : 'pointer',
                   boxShadow: hlState === 'correct'
                     ? 'inset 0 -4px 0 #059669'
@@ -239,21 +299,21 @@ export default function PianoKeyboard({
                   flexDirection: 'column',
                   alignItems: 'center',
                   justifyContent: 'flex-end',
-                  paddingBottom: 10,
-                  gap: 2,
+                  paddingBottom: Math.round(10 * scale),
+                  gap: Math.round(2 * scale),
                   zIndex: 1,
                   transition: 'background 0.1s',
                   opacity: disabled ? 0.7 : 1,
                 }}
               >
                 {hasLabels && label && inScale && (
-                  <Text style={{ fontSize: 10, color: isActive ? '#7c3aed' : '#aaa', lineHeight: 1 }}>
+                  <Text style={{ fontSize: solfegeWhite, color: isActive ? '#7c3aed' : '#aaa', lineHeight: 1 }}>
                     {label.solfege}
                   </Text>
                 )}
                 {showNoteLabels && (
                   <Text style={{
-                    fontSize: 12,
+                    fontSize: whiteFontSize,
                     fontWeight: (isActive || hlState) ? 700 : 400,
                     color: textColor,
                     lineHeight: 1,
@@ -262,7 +322,7 @@ export default function PianoKeyboard({
                   </Text>
                 )}
                 {hasLabels && isTonic && (
-                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#7c3aed', marginTop: 2 }} />
+                  <div style={{ width: tonicDotSize, height: tonicDotSize, borderRadius: '50%', background: '#7c3aed', marginTop: 2 }} />
                 )}
               </div>
             </Tooltip>
@@ -277,7 +337,7 @@ export default function PianoKeyboard({
           const inScale = hasScale ? inScaleSet!.has(k.pitchClass) : true;
           const hlState = hlMap.get(k.note);
           const { bg, border: _border, textColor } = keyBg(true, isActive, isTonic, inScale, hlState);
-          const left = (k.blackAfter! - minWhite + 1) * WHITE_KEY_W - BLACK_KEY_W / 2 - 1;
+          const left = (k.blackAfter! - minWhite + 1) * sWk - sBkW / 2 - 1;
           const tooltip = label
             ? `${k.pitchClass}  |  ${label.solfege}  |  ${label.freq} Hz`
             : k.pitchClass;
@@ -292,10 +352,10 @@ export default function PianoKeyboard({
                   position: 'absolute',
                   left,
                   top: 0,
-                  width: BLACK_KEY_W,
-                  height: BLACK_KEY_H,
+                  width: sBkW,
+                  height: sBkH,
                   background: bg,
-                  borderRadius: '0 0 6px 6px',
+                  borderRadius: `0 0 ${Math.round(6 * scale)}px ${Math.round(6 * scale)}px`,
                   cursor: disabled ? 'default' : 'pointer',
                   zIndex: 2,
                   boxShadow: hlState
@@ -307,20 +367,20 @@ export default function PianoKeyboard({
                   flexDirection: 'column',
                   alignItems: 'center',
                   justifyContent: 'flex-end',
-                  paddingBottom: 8,
-                  gap: 2,
+                  paddingBottom: Math.round(8 * scale),
+                  gap: Math.round(2 * scale),
                   transition: 'background 0.1s',
                   opacity: disabled ? 0.7 : 1,
                 }}
               >
                 {hasLabels && label && inScale && (
-                  <Text style={{ fontSize: 9, color: isActive ? '#fff' : '#999', lineHeight: 1 }}>
+                  <Text style={{ fontSize: solfegeBlack, color: isActive ? '#fff' : '#999', lineHeight: 1 }}>
                     {label.solfege}
                   </Text>
                 )}
                 {showNoteLabels && (
                   <Text style={{
-                    fontSize: 10,
+                    fontSize: blackFontSize,
                     color: textColor,
                     lineHeight: 1,
                   }}>
