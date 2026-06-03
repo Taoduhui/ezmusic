@@ -6,11 +6,154 @@
  *   1. Full mode — labels, scale highlighting, tonic indicator (for note-solfege chapter)
  *   2. Simplified mode — no labels/inScaleSet → plain note-name keys (for drill training)
  */
-import { useRef, useState, useEffect, useCallback } from 'react';
+import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { Tooltip, Typography } from 'antd';
 import type { NoteLabel } from '../music/theory';
 
 const { Text } = Typography;
+
+// ---------------------------------------------------------------------------
+// Octave ruler — quick navigation for multi-octave keyboards
+// ---------------------------------------------------------------------------
+
+interface OctaveRulerProps {
+  /** Tick mark positions (octave boundaries / C notes) */
+  markers: { label: string; leftPercent: number }[];
+  /** Viewport indicator left edge as percentage (0–100) */
+  viewportLeft: number;
+  /** Viewport indicator width as percentage (0–100) */
+  viewportWidth: number;
+  /** Called when the user clicks or drags to a new position */
+  onNavigate: (percent: number) => void;
+}
+
+function OctaveRuler({ markers, viewportLeft, viewportWidth, onNavigate }: OctaveRulerProps) {
+  const barRef = useRef<HTMLDivElement | null>(null);
+  const dragging = useRef(false);
+
+  /** Snap zone radius: when within 4% of a marker the position snaps to it. */
+  const SNAP_THRESHOLD = 4;
+
+  // Offset between mouse cursor and viewport left edge, preserved during drag
+  const dragOffset = useRef(0);
+  // Track whether the user dragged (vs. a stationary click)
+  const hasMoved = useRef(false);
+
+  /** Convert a mouse clientX to a ruler percentage (0–100). */
+  const clientToPercent = useCallback((clientX: number): number => {
+    if (!barRef.current) return 0;
+    const rect = barRef.current.getBoundingClientRect();
+    return ((clientX - rect.left) / rect.width) * 100;
+  }, []);
+
+  /** Snap a ruler percentage to the nearest C-note marker if within SNAP_THRESHOLD. */
+  const snapToMarker = useCallback(
+    (percent: number): number => {
+      let nearest = percent;
+      let minDist = Infinity;
+      for (const m of markers) {
+        const dist = Math.abs(percent - m.leftPercent);
+        if (dist < SNAP_THRESHOLD && dist < minDist) {
+          minDist = dist;
+          nearest = m.leftPercent;
+        }
+      }
+      return nearest;
+    },
+    [markers],
+  );
+
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+
+      const clickPercent = clientToPercent(e.clientX);
+
+      // Record the offset between the mouse and the CURRENT viewport position.
+      // This becomes the drag anchor — the same relative point stays under the cursor.
+      dragOffset.current = clickPercent - viewportLeft;
+      hasMoved.current = false;
+
+      dragging.current = true;
+
+      const onMouseMove = (ev: MouseEvent) => {
+        if (!dragging.current) return;
+        hasMoved.current = true;
+        const currentPercent = clientToPercent(ev.clientX);
+        const desiredPercent = currentPercent - dragOffset.current;
+        const snapped = snapToMarker(desiredPercent);
+        onNavigate(Math.max(0, Math.min(100, snapped)));
+      };
+
+      const onMouseUp = () => {
+        dragging.current = false;
+        // If the user clicked without dragging, treat as a jump to that position
+        if (!hasMoved.current) {
+          const snapped = snapToMarker(clickPercent);
+          onNavigate(snapped);
+        }
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+      };
+
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+    },
+    [clientToPercent, snapToMarker, onNavigate, viewportLeft],
+  );
+
+  return (
+    <div
+      ref={barRef}
+      onMouseDown={handleMouseDown}
+      style={{
+        height: 26,
+        position: 'relative',
+        cursor: 'pointer',
+        background: '#f0f0f0',
+        borderRadius: '6px 6px 0 0',
+        border: '1px solid #e0e0e0',
+        borderBottom: 'none',
+        userSelect: 'none',
+        flexShrink: 0,
+      }}
+    >
+      {/* Tick marks at each octave boundary (C notes) */}
+      {markers.map((m) => (
+        <div
+          key={m.label}
+          style={{
+            position: 'absolute',
+            left: `${m.leftPercent}%`,
+            bottom: 2,
+            transform: 'translateX(-50%)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            pointerEvents: 'none',
+          }}
+        >
+          <div style={{ width: 1, height: 8, background: '#aaa' }} />
+          <Text style={{ fontSize: 9, color: '#888', lineHeight: 1 }}>{m.label}</Text>
+        </div>
+      ))}
+      {/* Viewport indicator */}
+      <div
+        style={{
+          position: 'absolute',
+          left: `${viewportLeft}%`,
+          width: `${Math.max(viewportWidth, 2)}%`,
+          top: 1,
+          bottom: 1,
+          background: 'rgba(124, 58, 237, 0.12)',
+          border: '1px solid rgba(124, 58, 237, 0.35)',
+          borderRadius: 3,
+          pointerEvents: 'none',
+        }}
+      />
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Piano key data model
@@ -209,6 +352,11 @@ export default function PianoKeyboard({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [scale, setScale] = useState(1);
 
+  // Scroll tracking for the octave ruler (only active when fillWidth is false)
+  const [scrollLeft, setScrollLeft] = useState(0);
+  const [scrollViewW, setScrollViewW] = useState(0);
+  const [scrollContentW, setScrollContentW] = useState(0);
+
   const updateScale = useCallback(() => {
     if (!fillWidth || !containerRef.current) return;
     const availableW = containerRef.current.clientWidth;
@@ -237,6 +385,29 @@ export default function PianoKeyboard({
     return () => observer.disconnect();
   }, [fillWidth, updateScale]);
 
+  // Track scroll position and container size for the octave ruler
+  useEffect(() => {
+    if (fillWidth) return;
+    const el = containerRef.current;
+    if (!el) return;
+
+    const update = () => {
+      setScrollLeft(el.scrollLeft);
+      setScrollViewW(el.clientWidth);
+      setScrollContentW(el.scrollWidth);
+    };
+
+    update();
+    el.addEventListener('scroll', update, { passive: true });
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+
+    return () => {
+      el.removeEventListener('scroll', update);
+      ro.disconnect();
+    };
+  }, [fillWidth]);
+
   // Scaled dimensions
   const sWk = WHITE_KEY_W * scale;
   const sWkH = WHITE_KEY_H * scale;
@@ -250,11 +421,50 @@ export default function PianoKeyboard({
   const solfegeBlack = Math.round(9 * scale);
   const tonicDotSize = Math.round(6 * scale);
 
+  // Octave ruler: markers at each C note
+  const octaveMarkers = useMemo(() => {
+    if (fillWidth) return [];
+    const maxWhite = whiteKeys.length > 0 ? whiteKeys[whiteKeys.length - 1].whiteIndex! : 0;
+    const totalSlots = maxWhite - minWhite + 1;
+    return whiteKeys
+      .filter((k) => k.pitchClass === 'C')
+      .map((k) => ({
+        label: k.note,
+        leftPercent: ((k.whiteIndex! - minWhite + 0.5) / totalSlots) * 100,
+      }));
+  }, [whiteKeys, minWhite, fillWidth]);
+
+  // Viewport indicator position and size
+  const rulerViewportLeft = scrollContentW > 0 ? (scrollLeft / scrollContentW) * 100 : 0;
+  const rulerViewportWidth = scrollContentW > 0 ? (scrollViewW / scrollContentW) * 100 : 100;
+  const showRuler = !fillWidth && scrollContentW > scrollViewW && scrollViewW > 0;
+
+  // Navigate keyboard to a position when user interacts with the ruler
+  const handleRulerNavigate = useCallback(
+    (percent: number) => {
+      const el = containerRef.current;
+      if (!el) return;
+      const maxScroll = Math.max(0, scrollContentW - scrollViewW);
+      const targetScroll = (percent / 100) * scrollContentW;
+      el.scrollLeft = Math.max(0, Math.min(targetScroll, maxScroll));
+    },
+    [scrollContentW, scrollViewW],
+  );
+
   return (
-    <div
-      ref={containerRef}
-      style={{ overflowX: fillWidth && scale > 1 ? 'hidden' : 'auto', paddingBottom: 8 }}
-    >
+    <div>
+      {showRuler && (
+        <OctaveRuler
+          markers={octaveMarkers}
+          viewportLeft={rulerViewportLeft}
+          viewportWidth={rulerViewportWidth}
+          onNavigate={handleRulerNavigate}
+        />
+      )}
+      <div
+        ref={containerRef}
+        style={{ overflowX: fillWidth && scale > 1 ? 'hidden' : 'auto', paddingBottom: 8 }}
+      >
       <div style={{ position: 'relative', width: totalW, height: sWkH, userSelect: 'none', margin: '0 auto' }}>
         {/* White keys */}
         {whiteKeys.map((k) => {
@@ -392,6 +602,7 @@ export default function PianoKeyboard({
           );
         })}
       </div>
+    </div>
     </div>
   );
 }
