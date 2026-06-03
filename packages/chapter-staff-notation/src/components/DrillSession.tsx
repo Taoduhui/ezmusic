@@ -381,7 +381,7 @@ export default function DrillSession() {
       const pool = filteredPool.length > 0 ? filteredPool : targetPool;
 
       const baseNote = selectDrillNote(pool, progress, lastNote);
-      const accidentalType = pickRandomAccidental(baseNote, selectedAccidentals);
+      const accidentalType = pickRandomAccidental(baseNote, selectedAccidentals, pool);
 
       let note: string;
       let distractorCandidates: string[];

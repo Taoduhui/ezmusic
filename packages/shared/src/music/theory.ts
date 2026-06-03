@@ -494,6 +494,7 @@ export function isAccidentalApplicable(
 export function pickRandomAccidental(
   note: string,
   selectedAccidentals: AccidentalOption[],
+  pool?: readonly string[],
 ): AccidentalOption | null {
   const accidentalTypes = selectedAccidentals.filter((a) => a !== 'natural');
   if (accidentalTypes.length === 0) return null;
@@ -504,10 +505,18 @@ export function pickRandomAccidental(
   const hasAccidental = pc.includes('#') || pc.includes('b');
 
   // Only keep types that make sense for this particular note
-  const applicable = accidentalTypes.filter((type) => {
+  let applicable = accidentalTypes.filter((type) => {
     if (type === 'natural-sign') return hasAccidental;
     return true;
   });
+
+  // When the note pool is known, also exclude accidental types that would
+  // produce an enharmonic simplification colliding with an existing pool note
+  // (e.g. E♯→F, B♯→C with sharp; F♭→E, C♭→B with flat).
+  if (pool) {
+    applicable = applicable.filter((type) => isAccidentalApplicable(note, type, pool));
+  }
+
   if (applicable.length === 0) return null;
 
   // When "不变音" is selected, ~35 % chance to apply an accidental.
@@ -586,7 +595,7 @@ export function applyRandomAccidental(
   selectedAccidentals: AccidentalOption[],
   existingPool?: readonly string[],
 ): string {
-  const type = pickRandomAccidental(note, selectedAccidentals);
+  const type = pickRandomAccidental(note, selectedAccidentals, existingPool);
   if (!type) return note;
   return applySpecificAccidental(note, type, existingPool);
 }
