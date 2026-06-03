@@ -28,14 +28,21 @@ import { useTranslation } from 'react-i18next';
 import {
   DRILL_STAGE_ORDER,
   DRILL_STAGE_NOTES,
+  COMMON_MAJOR_KEYS,
+  applyKeyToPool,
+  pickRandomAccidental,
+  applySpecificAccidental,
+  ACCIDENTAL_OPTIONS,
   type DrillStage,
   type NoteProgress,
+  type AccidentalOption,
   selectDrillNote,
   getDrillDistractors,
   shuffleArray,
   getClefForNote,
   useAudio,
   triggerOpenDrawer,
+  isAccidentalApplicable,
 } from '@ezmusic/shared';
 import StaffDisplay from './StaffDisplay';
 import { PianoKeyboard, type KeyHighlight } from '@ezmusic/shared';
@@ -85,6 +92,10 @@ interface DrillProgressStore {
   preferredStage?: DrillStage;
   /** Persisted training mode preference */
   preferredMode?: DrillMode;
+  /** Persisted key signature preference */
+  preferredKeySignature?: string;
+  /** Persisted accidental selection preference */
+  preferredAccidentals?: AccidentalOption[];
   /** Persisted collapse panel expanded state */
   progressPanelExpanded?: boolean;
 }
@@ -104,6 +115,8 @@ function loadProgress(): DrillProgressStore {
         noteProgress: parsed.noteProgress ?? {},
         preferredStage: parsed.preferredStage,
         preferredMode: parsed.preferredMode,
+        preferredKeySignature: parsed.preferredKeySignature,
+        preferredAccidentals: parsed.preferredAccidentals,
       };
     }
   } catch { /* ignore */ }
@@ -298,6 +311,12 @@ export default function DrillSession() {
   const [drillMode, setDrillMode] = useState<DrillMode>(
     initialProgress.preferredMode ?? 'note-name',
   );
+  const [keySignature, setKeySignature] = useState<string>(
+    initialProgress.preferredKeySignature ?? 'C',
+  );
+  const [selectedAccidentals, setSelectedAccidentals] = useState<AccidentalOption[]>(
+    initialProgress.preferredAccidentals ?? ['natural'],
+  );
   const [currentNote, setCurrentNote] = useState<string | null>(null);
   const [choices, setChoices] = useState<string[]>([]);
   const [chosen, setChosen] = useState<string | null>(null);
@@ -309,14 +328,18 @@ export default function DrillSession() {
   const autoAdvanceRef = useRef<number | null>(null);
 
   const pool = useMemo(() => DRILL_STAGE_NOTES[stage], [stage]);
+  const effectivePool = useMemo(
+    () => applyKeyToPool(pool, keySignature),
+    [pool, keySignature],
+  );
   const clef = useMemo(
     () => (currentNote ? getClefForNote(currentNote, stage) : 'treble'),
     [currentNote, stage],
   );
   // Keyboard range for piano mode
   const keyboardRange = useMemo(
-    () => getKeyboardRange(pool),
-    [pool],
+    () => getKeyboardRange(effectivePool),
+    [effectivePool],
   );
 
   // Detect single-octave keyboard for fillWidth mode
@@ -344,6 +367,39 @@ export default function DrillSession() {
     return highlights;
   }, [chosen, currentNote]);
 
+  /** Generate a question: pick base note, decide accidental, apply uniformly. */
+  const generateQuestion = useCallback(
+    (targetPool: string[], progress: Record<string, NoteProgress>, lastNote?: string) => {
+      // Exclude notes where every selected accidental type would cause an
+      // enharmonic simplification that collides with the note pool
+      // (e.g. E♯→F, B♯→C, F♭→E, C♭→B).  When "不变音" (natural) is
+      // selected, all notes pass the filter.
+      const filteredPool = targetPool.filter((note) =>
+        selectedAccidentals.some((accType) => isAccidentalApplicable(note, accType, targetPool)),
+      );
+      // Defensive fallback in case all notes are filtered out
+      const pool = filteredPool.length > 0 ? filteredPool : targetPool;
+
+      const baseNote = selectDrillNote(pool, progress, lastNote);
+      const accidentalType = pickRandomAccidental(baseNote, selectedAccidentals);
+
+      let note: string;
+      let distractorCandidates: string[];
+      if (accidentalType) {
+        note = applySpecificAccidental(baseNote, accidentalType, pool);
+        distractorCandidates = getDrillDistractors(baseNote, pool)
+          .map((d) => applySpecificAccidental(d, accidentalType, pool));
+      } else {
+        note = baseNote;
+        distractorCandidates = getDrillDistractors(baseNote, pool);
+      }
+
+      const choices = [...new Set([note, ...distractorCandidates])];
+      return { note, choices: shuffleArray(choices) };
+    },
+    [selectedAccidentals],
+  );
+
   const replayCurrentNote = useCallback(() => {
     if (!currentNote) return;
     void playNote(currentNote, NOTE_PLAY_DURATION);
@@ -368,14 +424,16 @@ export default function DrillSession() {
   // Persist store whenever it changes
   useEffect(() => { saveProgress(store); }, [store]);
 
-  // Persist mode & stage preferences
+  // Persist mode, stage, key signature & accidental preferences
   useEffect(() => {
     setStore((prev) => ({
       ...prev,
       preferredStage: stage,
       preferredMode: drillMode,
+      preferredKeySignature: keySignature,
+      preferredAccidentals: selectedAccidentals,
     }));
-  }, [stage, drillMode]);
+  }, [stage, drillMode, keySignature, selectedAccidentals]);
 
   // Clear auto-advance timeout on unmount
   useEffect(() => {
@@ -395,14 +453,13 @@ export default function DrillSession() {
         autoAdvanceRef.current = null;
       }
 
-      const note = selectDrillNote(pool, store.noteProgress, lastNote);
-      const distractors = getDrillDistractors(note, pool);
+      const { note, choices } = generateQuestion(effectivePool, store.noteProgress, lastNote);
       setCurrentNote(note);
-      setChoices(shuffleArray([note, ...distractors]));
+      setChoices(choices);
       setChosen(null);
       void playNote(note, NOTE_PLAY_DURATION);
     },
-    [pool, store.noteProgress, playNote],
+    [effectivePool, store.noteProgress, playNote, generateQuestion],
   );
 
   // Start or restart the stage
@@ -419,24 +476,37 @@ export default function DrillSession() {
       setCurrentNote(null);
       // Slight delay so pool updates before generating question
       setTimeout(() => {
-        const note = selectDrillNote(DRILL_STAGE_NOTES[s], store.noteProgress);
-        const distractors = getDrillDistractors(note, DRILL_STAGE_NOTES[s]);
+        const targetPool = applyKeyToPool(DRILL_STAGE_NOTES[s], keySignature);
+        const { note, choices } = generateQuestion(targetPool, store.noteProgress);
         setCurrentNote(note);
-        setChoices(shuffleArray([note, ...distractors]));
+        setChoices(choices);
         void playNote(note, NOTE_PLAY_DURATION);
       }, 0);
     },
-    [store.noteProgress, playNote],
+    [store.noteProgress, playNote, keySignature, generateQuestion],
   );
 
   // Initialize first question on mount
   useEffect(() => {
-    const note = selectDrillNote(pool, store.noteProgress);
-    const distractors = getDrillDistractors(note, pool);
+    const initialPool = applyKeyToPool(pool, keySignature);
+    const { note, choices } = generateQuestion(initialPool, store.noteProgress);
     setCurrentNote(note);
-    setChoices(shuffleArray([note, ...distractors]));
+    setChoices(choices);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Regenerate question when key signature or accidental selection changes
+  useEffect(() => {
+    if (currentNote === null) {
+      const newPool = applyKeyToPool(pool, keySignature);
+      const { note, choices } = generateQuestion(newPool, store.noteProgress);
+      setCurrentNote(note);
+      setChoices(choices);
+      void playNote(note, NOTE_PLAY_DURATION);
+    }
+    // Only react to keySignature / selectedAccidentals changes, not every render
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keySignature, selectedAccidentals]);
 
   const handleAnswer = useCallback(
     (answer: string) => {
@@ -509,17 +579,16 @@ export default function DrillSession() {
     const newStore: DrillProgressStore = {
       ...store,
       noteProgress: Object.fromEntries(
-        Object.entries(store.noteProgress).filter(([k]) => !pool.includes(k)),
+        Object.entries(store.noteProgress).filter(([k]) => !effectivePool.includes(k)),
       ),
     };
     setStore(newStore);
     setChosen(null);
-    const note = selectDrillNote(pool, newStore.noteProgress);
-    const distractors = getDrillDistractors(note, pool);
+    const { note, choices } = generateQuestion(effectivePool, newStore.noteProgress);
     setCurrentNote(note);
-    setChoices(shuffleArray([note, ...distractors]));
+    setChoices(choices);
     setStreak(0);
-  }, [store, pool]);
+  }, [store, effectivePool, generateQuestion]);
 
   // Determine answer button states
   const getButtonState = useCallback(
@@ -532,7 +601,7 @@ export default function DrillSession() {
     [chosen, currentNote],
   );
 
-  const masteredCount = pool.filter((n) => store.noteProgress[n]?.mastered).length;
+  const masteredCount = effectivePool.filter((n) => store.noteProgress[n]?.mastered).length;
   const accuracy = sessionTotal > 0 ? Math.round((sessionCorrect / sessionTotal) * 100) : null;
   return (
     <div
@@ -589,13 +658,13 @@ export default function DrillSession() {
                 label: (
                   <Space size={8} wrap>
                     <Text style={{ fontSize: 13 }}>
-                      {t('staffNotation.stageProgress', { done: masteredCount, total: pool.length })}
+                      {t('staffNotation.stageProgress', { done: masteredCount, total: effectivePool.length })}
                     </Text>
                     <Progress
-                      percent={Math.round((masteredCount / pool.length) * 100)}
+                      percent={Math.round((masteredCount / effectivePool.length) * 100)}
                       size="small"
                       style={{ width: 120 }}
-                      strokeColor={masteredCount === pool.length ? '#059669' : '#7c3aed'}
+                      strokeColor={masteredCount === effectivePool.length ? '#059669' : '#7c3aed'}
                     />
                     {accuracy !== null && (
                       <Tag icon={<TrophyOutlined />} color="gold">
@@ -630,6 +699,52 @@ export default function DrillSession() {
                           noteProgress={store.noteProgress}
                         />
                       </Space>
+                      <Space size={4}>
+                        <Text style={{ fontSize: 13 }}>{t('staffNotation.keySignatureLabel')}:</Text>
+                        <Select
+                          value={keySignature}
+                          onChange={(v) => {
+                            setKeySignature(v);
+                            // Clear current question so nextQuestion generates with new pool
+                            setCurrentNote(null);
+                            setChosen(null);
+                            if (autoAdvanceRef.current !== null) {
+                              window.clearTimeout(autoAdvanceRef.current);
+                              autoAdvanceRef.current = null;
+                            }
+                          }}
+                          options={[...COMMON_MAJOR_KEYS].map((k) => ({
+                            value: k,
+                            label: k,
+                          }))}
+                          style={{ minWidth: 100 }}
+                          size="small"
+                        />
+                      </Space>
+                      <Space size={4}>
+                        <Text style={{ fontSize: 13 }}>{t('staffNotation.accidentalLabel')}:</Text>
+                        <Select
+                          mode="multiple"
+                          value={selectedAccidentals}
+                          onChange={(v) => {
+                            setSelectedAccidentals(v);
+                            // Clear current question so the effect regenerates with new settings
+                            setCurrentNote(null);
+                            setChosen(null);
+                            if (autoAdvanceRef.current !== null) {
+                              window.clearTimeout(autoAdvanceRef.current);
+                              autoAdvanceRef.current = null;
+                            }
+                          }}
+                          options={ACCIDENTAL_OPTIONS.map((opt) => ({
+                            value: opt.value,
+                            label: t(opt.labelKey),
+                          }))}
+                          style={{ minWidth: 200 }}
+                          size="small"
+                          maxTagCount={2}
+                        />
+                      </Space>
                     </Space>
                     <Space style={{ marginBottom: 12 }} wrap>
                       {streak >= 3 && (
@@ -651,7 +766,7 @@ export default function DrillSession() {
                       </Popconfirm>
                     </div>
                     <ProgressBoard
-                      pool={pool}
+                      pool={effectivePool}
                       noteProgress={store.noteProgress}
                       currentNote={chosen !== null ? currentNote : null}
                     />
@@ -694,6 +809,7 @@ export default function DrillSession() {
                 notes={currentNote}
                 clef={clef}
                 highlightNote={chosen !== null ? currentNote : undefined}
+                keySignature={keySignature !== 'C' ? keySignature : undefined}
                 width={screens.xl ? 520 : screens.lg ? 440 : screens.md ? 360 : 280}
                 height={190}
               />

@@ -399,6 +399,198 @@ export function isStageComplete(
   return pool.every((note) => progress[note]?.mastered === true);
 }
 
+/** Apply a key signature to a single note (e.g. 'F4' in 'G' major → 'F#4') */
+export function applyKeyToNote(note: string, key: string): string {
+  if (key === 'C') return note;
+
+  const scaleNotes = majorScaleNotes(key);
+  if (scaleNotes.length === 0) return note;
+
+  const pc = Note.pitchClass(note);
+  const octave = /\d+$/.exec(note)?.[0] ?? '4';
+
+  // Direct match in the scale (e.g. C, D, E in G major)
+  const direct = scaleNotes.find((s) => Note.pitchClass(s) === pc);
+  if (direct) return `${direct}${octave}`;
+
+  // Try enharmonic match for notes that need accidentals (e.g. F → F# in G major)
+  const enhanced = Note.enharmonic(pc);
+  const match = scaleNotes.find((s) => Note.pitchClass(s) === Note.pitchClass(enhanced));
+  if (match) return `${match}${octave}`;
+
+  return note;
+}
+
+/** Apply a key signature to an entire note pool */
+export function applyKeyToPool(
+  pool: readonly string[],
+  key: string,
+): string[] {
+  return pool.map((note) => applyKeyToNote(note, key));
+}
+
+// ---------------------------------------------------------------------------
+// Random accidentals (变音记号) — for drill variation
+// ---------------------------------------------------------------------------
+
+/** Types of accidentals that can be randomly applied during drills */
+export type AccidentalOption =
+  | 'natural'
+  | 'sharp'
+  | 'flat'
+  | 'natural-sign'
+  | 'double-sharp'
+  | 'double-flat';
+
+/** Accidental options with i18n label keys for the multi-select UI */
+export const ACCIDENTAL_OPTIONS: { value: AccidentalOption; labelKey: string }[] = [
+  { value: 'natural', labelKey: 'staffNotation.accidentalNone' },
+  { value: 'sharp', labelKey: 'staffNotation.accidentalSharp' },
+  { value: 'flat', labelKey: 'staffNotation.accidentalFlat' },
+  { value: 'natural-sign', labelKey: 'staffNotation.accidentalNaturalSign' },
+  { value: 'double-sharp', labelKey: 'staffNotation.accidentalDoubleSharp' },
+  { value: 'double-flat', labelKey: 'staffNotation.accidentalDoubleFlat' },
+];
+
+/**
+ * Check whether a given accidental type can be applied to a note without
+ * causing an enharmonic simplification that collides with a note already in
+ * the pool (e.g. E♯ → F, B♯ → C, F♭ → E, C♭ → B).
+ *
+ * When this returns `false`, the note should be excluded from the question
+ * pool when the user has NOT selected "不变音" (natural).
+ */
+export function isAccidentalApplicable(
+  note: string,
+  accidentalType: AccidentalOption,
+  pool: readonly string[],
+): boolean {
+  if (accidentalType === 'natural') return true;
+
+  const pc = Note.pitchClass(note);
+  const hasAccidental = pc.includes('#') || pc.includes('b');
+
+  // natural-sign only makes sense for notes that already carry an accidental
+  if (accidentalType === 'natural-sign') return hasAccidental;
+
+  // For sharp / flat / double-*: test whether the accidental actually changes
+  // the note.  If applySpecificAccidental returns the same note (because the
+  // enharmonic result collides with an existing pool note and the fallback
+  // fires), the accidental is *not* applicable.
+  const result = applySpecificAccidental(note, accidentalType, pool);
+  return result !== note;
+}
+
+/**
+ * Decide which accidental type (if any) should be applied to a note for the
+ * current question, based on the user's multi-select configuration.
+ *
+ * This is the **decision** step — call it once per question so the correct
+ * answer and all distractors share the same accidental type.
+ *
+ * @returns The chosen `AccidentalOption`, or `null` if the note should stay
+ *          as-is (no extra accidental beyond the key signature).
+ */
+export function pickRandomAccidental(
+  note: string,
+  selectedAccidentals: AccidentalOption[],
+): AccidentalOption | null {
+  const accidentalTypes = selectedAccidentals.filter((a) => a !== 'natural');
+  if (accidentalTypes.length === 0) return null;
+
+  const includesNatural = selectedAccidentals.includes('natural');
+
+  const pc = Note.pitchClass(note);
+  const hasAccidental = pc.includes('#') || pc.includes('b');
+
+  // Only keep types that make sense for this particular note
+  const applicable = accidentalTypes.filter((type) => {
+    if (type === 'natural-sign') return hasAccidental;
+    return true;
+  });
+  if (applicable.length === 0) return null;
+
+  // When "不变音" is selected, ~35 % chance to apply an accidental.
+  // When "不变音" is NOT selected, always apply an accidental.
+  if (includesNatural && Math.random() > 0.35) return null;
+
+  return applicable[Math.floor(Math.random() * applicable.length)];
+}
+
+/**
+ * Apply a **specific** accidental type to a note.
+ *
+ * Use this together with {@link pickRandomAccidental} so the correct answer and
+ * all distractors receive the same accidental treatment in a single question.
+ *
+ * All accidentals are applied relative to the **natural** pitch class (stripping
+ * any alteration introduced by the key signature), matching real notation where
+ * an accidental indicates the absolute alteration.
+ */
+export function applySpecificAccidental(
+  note: string,
+  type: AccidentalOption,
+  existingPool?: readonly string[],
+): string {
+  if (type === 'natural') return note;
+
+  const pc = Note.pitchClass(note); // e.g. 'F#' or 'C'
+  const octave = /\d+$/.exec(note)?.[0] ?? '4';
+
+  // Natural pitch class — strip any existing accidental (key signature)
+  const naturalPC = pc[0]; // 'F#' → 'F', 'C' → 'C'
+  const naturalIdx = chromaticIndex(naturalPC);
+
+  let resultPc: string;
+  switch (type) {
+    case 'natural-sign':
+      resultPc = naturalPC;
+      break;
+    case 'sharp':
+      resultPc = CHROMATIC[(naturalIdx + 1) % 12];
+      break;
+    case 'flat': {
+      const flatIdx = (naturalIdx + 11) % 12; // -1 mod 12
+      const sharpPc = CHROMATIC[flatIdx];
+      // Convert to flat notation when possible (e.g. D# → Eb)
+      resultPc = sharpPc.includes('#') ? Note.enharmonic(sharpPc) : sharpPc;
+      break;
+    }
+    case 'double-sharp':
+      resultPc = `${naturalPC}##`;
+      break;
+    case 'double-flat':
+      resultPc = `${naturalPC}bb`;
+      break;
+    default:
+      return note;
+  }
+
+  const result = `${resultPc}${octave}`;
+
+  // Avoid colliding with notes that are already in the pool
+  if (existingPool && existingPool.includes(result)) return note;
+
+  return result;
+}
+
+/**
+ * Convenience wrapper: randomly pick and apply an accidental to a single note.
+ *
+ * Prefer {@link pickRandomAccidental} + {@link applySpecificAccidental} when
+ * generating a question with distractors, so the same accidental type is used
+ * for the correct answer and all wrong answers.
+ */
+export function applyRandomAccidental(
+  note: string,
+  selectedAccidentals: AccidentalOption[],
+  existingPool?: readonly string[],
+): string {
+  const type = pickRandomAccidental(note, selectedAccidentals);
+  if (!type) return note;
+  return applySpecificAccidental(note, type, existingPool);
+}
+
 /** Shuffle an array (Fisher-Yates, non-mutating) */
 export function shuffleArray<T>(arr: T[]): T[] {
   const result = [...arr];

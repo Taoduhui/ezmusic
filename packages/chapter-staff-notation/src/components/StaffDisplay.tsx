@@ -16,6 +16,8 @@ export interface StaffDisplayProps {
   accentColor?: string;
   /** Default note color */
   noteColor?: string;
+  /** Key signature (e.g. 'G', 'F', 'Bb'). 'C' or undefined = no accidentals. */
+  keySignature?: string;
   width?: number;
   height?: number;
 }
@@ -37,6 +39,7 @@ export default function StaffDisplay({
   highlightNote,
   accentColor = '#7c3aed',
   noteColor = '#2c2c2c',
+  keySignature,
   width = 240,
   height = 180,
 }: StaffDisplayProps) {
@@ -80,9 +83,12 @@ export default function StaffDisplay({
             const color = trebleNotes[i] === highlightNote ? accentColor : noteColor;
             sn.setStyle({ fillStyle: color, strokeStyle: color });
           });
-          systemTop
+          const staveTop = systemTop
             .addStave({ voices: [score.voice(staveTopNotes)] })
             .addClef('treble');
+          if (keySignature && keySignature !== 'C') {
+            staveTop.addKeySignature(keySignature);
+          }
         }
 
         // Bass stave (bottom)
@@ -96,19 +102,28 @@ export default function StaffDisplay({
             const color = bassNotes[i] === highlightNote ? accentColor : noteColor;
             sn.setStyle({ fillStyle: color, strokeStyle: color });
           });
-          systemBottom
+          const staveBottom = systemBottom
             .addStave({ voices: [score.voice(staveBotNotes)] })
             .addClef('bass');
+          if (keySignature && keySignature !== 'C') {
+            staveBottom.addKeySignature(keySignature);
+          }
         }
 
         // If one stave has no notes, still render it empty with its clef
         if (trebleNotes.length === 0) {
           const systemTop = vf.System({ x: 10, y: yTop, width: staveWidth });
-          systemTop.addStave({ voices: [] }).addClef('treble');
+          const staveTop = systemTop.addStave({ voices: [] }).addClef('treble');
+          if (keySignature && keySignature !== 'C') {
+            staveTop.addKeySignature(keySignature);
+          }
         }
         if (bassNotes.length === 0) {
           const systemBottom = vf.System({ x: 10, y: yBottom, width: staveWidth });
-          systemBottom.addStave({ voices: [] }).addClef('bass');
+          const staveBottom = systemBottom.addStave({ voices: [] }).addClef('bass');
+          if (keySignature && keySignature !== 'C') {
+            staveBottom.addKeySignature(keySignature);
+          }
         }
 
         vf.draw();
@@ -136,9 +151,13 @@ export default function StaffDisplay({
           sn.setStyle({ fillStyle: color, strokeStyle: color });
         });
 
-        system
+        const stave = system
           .addStave({ voices: [score.voice(staveNotes)] })
           .addClef(clef);
+
+        if (keySignature && keySignature !== 'C') {
+          stave.addKeySignature(keySignature);
+        }
 
         vf.draw();
 
@@ -151,7 +170,7 @@ export default function StaffDisplay({
     } catch {
       // Silently ignore VexFlow render errors (e.g. during hot reload)
     }
-  }, [notes, clef, noteDuration, highlightNote, accentColor, noteColor, width, height, vfId]);
+  }, [notes, clef, noteDuration, highlightNote, accentColor, noteColor, keySignature, width, height, vfId]);
 
   return <div ref={containerRef} style={{ lineHeight: 0, minHeight: height }} />;
 }
