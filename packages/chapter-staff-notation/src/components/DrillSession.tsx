@@ -32,7 +32,6 @@ import {
   type NoteProgress,
   selectDrillNote,
   getDrillDistractors,
-  isStageComplete,
   shuffleArray,
   getClefForNote,
   useAudio,
@@ -314,11 +313,6 @@ export default function DrillSession() {
     () => (currentNote ? getClefForNote(currentNote, stage) : 'treble'),
     [currentNote, stage],
   );
-  const stageComplete = useMemo(
-    () => isStageComplete(pool, store.noteProgress),
-    [pool, store.noteProgress],
-  );
-
   // Keyboard range for piano mode
   const keyboardRange = useMemo(
     () => getKeyboardRange(pool),
@@ -666,36 +660,6 @@ export default function DrillSession() {
               },
             ]}
           />
-
-          {/* Stage complete banner */}
-          {stageComplete && (
-            <div
-              style={{
-                background: 'linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%)',
-                border: '1px solid #059669',
-                borderRadius: 8,
-                padding: '16px 20px',
-                marginBottom: 20,
-                textAlign: 'center',
-              }}
-            >
-              <Text strong style={{ fontSize: 16, color: '#065f46' }}>
-                🎉 {t('staffNotation.stageComplete')}
-              </Text>
-              {DRILL_STAGE_ORDER.indexOf(stage) < DRILL_STAGE_ORDER.length - 1 && (
-                <Button
-                  type="primary"
-                  style={{ marginLeft: 16, background: '#059669', borderColor: '#059669' }}
-                  onClick={() => {
-                    const next = DRILL_STAGE_ORDER[DRILL_STAGE_ORDER.indexOf(stage) + 1];
-                    if (next) startStage(next);
-                  }}
-                >
-                  {t('staffNotation.stageCompleteAction')} →
-                </Button>
-              )}
-            </div>
-          )}
 
           {/* Staff display */}
           <div
