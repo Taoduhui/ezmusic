@@ -98,6 +98,9 @@ interface DrillProgressStore {
   preferredAccidentals?: AccidentalOption[];
   /** Persisted collapse panel expanded state */
   progressPanelExpanded?: boolean;
+  /** Persisted guitar fretboard range */
+  preferredFretStart?: number;
+  preferredFretEnd?: number;
 }
 
 function emptyProgress(): DrillProgressStore {
@@ -317,6 +320,17 @@ export default function DrillSession() {
   const [selectedAccidentals, setSelectedAccidentals] = useState<AccidentalOption[]>(
     initialProgress.preferredAccidentals ?? ['natural'],
   );
+  const [fretStart, setFretStart] = useState<number>(
+    initialProgress.preferredFretStart ?? 0,
+  );
+  const [fretEnd, setFretEnd] = useState<number>(
+    initialProgress.preferredFretEnd ?? 12,
+  );
+
+  const handleFretRangeChange = useCallback((start: number, end: number) => {
+    setFretStart(start);
+    setFretEnd(end);
+  }, []);
   const [currentNote, setCurrentNote] = useState<string | null>(null);
   const [choices, setChoices] = useState<string[]>([]);
   const [chosen, setChosen] = useState<string | null>(null);
@@ -432,8 +446,10 @@ export default function DrillSession() {
       preferredMode: drillMode,
       preferredKeySignature: keySignature,
       preferredAccidentals: selectedAccidentals,
+      preferredFretStart: fretStart,
+      preferredFretEnd: fretEnd,
     }));
-  }, [stage, drillMode, keySignature, selectedAccidentals]);
+  }, [stage, drillMode, keySignature, selectedAccidentals, fretStart, fretEnd]);
 
   // Clear auto-advance timeout on unmount
   useEffect(() => {
@@ -864,6 +880,9 @@ export default function DrillSession() {
             highlightKeys={keyboardHighlights}
             disabled={chosen !== null}
             showNoteLabels={true}
+            fretStart={fretStart}
+            fretEnd={fretEnd}
+            onFretRangeChange={handleFretRangeChange}
           />
         )}
 
