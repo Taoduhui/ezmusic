@@ -45,7 +45,7 @@ import {
   isAccidentalApplicable,
 } from '@ezmusic/shared';
 import StaffDisplay from './StaffDisplay';
-import { PianoKeyboard, type KeyHighlight } from '@ezmusic/shared';
+import { PianoKeyboard, GuitarFretboard, type KeyHighlight } from '@ezmusic/shared';
 
 const { Text } = Typography;
 const { useBreakpoint } = Grid;
@@ -68,7 +68,7 @@ function wait(ms: number): Promise<void> {
 }
 
 /** Training mode: note-name buttons or piano keyboard (with or without note labels) */
-type DrillMode = 'note-name' | 'piano' | 'piano-no-labels';
+type DrillMode = 'note-name' | 'piano' | 'piano-no-labels' | 'guitar';
 
 /** Compute the keyboard range for a given note pool (extend max to next C for completeness). */
 function getKeyboardRange(pool: readonly string[]): { min: string; max: string } {
@@ -686,6 +686,7 @@ export default function DrillSession() {
                             { value: 'note-name', label: t('staffNotation.trainingModeNoteName') },
                             { value: 'piano', label: t('staffNotation.trainingModePiano') },
                             { value: 'piano-no-labels', label: t('staffNotation.trainingModePianoNoLabels') },
+                            { value: 'guitar', label: t('staffNotation.trainingModeGuitar') },
                           ]}
                           style={{ minWidth: 180 }}
                           size="small"
@@ -844,7 +845,7 @@ export default function DrillSession() {
         )}
 
         {/* Piano keyboard (piano modes) */}
-        {drillMode !== 'note-name' && (
+        {(drillMode === 'piano' || drillMode === 'piano-no-labels') && (
           <PianoKeyboard
             onKeyPress={(_pc, note) => handleAnswer(note)}
             noteRange={keyboardRange}
@@ -853,6 +854,16 @@ export default function DrillSession() {
             showNoteLabels={drillMode === 'piano'}
             fillWidth={isSingleOctave}
             maxHeight={200}
+          />
+        )}
+
+        {/* Guitar fretboard (guitar mode) */}
+        {drillMode === 'guitar' && (
+          <GuitarFretboard
+            onKeyPress={(_pc, note) => handleAnswer(note)}
+            highlightKeys={keyboardHighlights}
+            disabled={chosen !== null}
+            showNoteLabels={true}
           />
         )}
 

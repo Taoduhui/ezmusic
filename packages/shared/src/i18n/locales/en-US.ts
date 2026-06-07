@@ -140,6 +140,7 @@ const enUS = {
     trainingModeNoteName: 'Note Name Drill',
     trainingModePiano: 'Piano Drill',
     trainingModePianoNoLabels: 'Piano Drill (No Labels)',
+    trainingModeGuitar: 'Guitar Drill',
     showKeyLabels: 'Show Note Labels',
     drillHint: 'Progress through C4, C5, C4+C5, C2, C3, C2+C3, and grand staff C2~C5 reading drills',
     whatNote: 'Which note is this?',
