@@ -68,7 +68,7 @@ function wait(ms: number): Promise<void> {
 }
 
 /** Training mode: note-name buttons or piano keyboard (with or without note labels) */
-type DrillMode = 'note-name' | 'piano' | 'piano-no-labels' | 'guitar';
+type DrillMode = 'note-name' | 'piano' | 'piano-no-labels' | 'guitar' | 'guitar-no-labels';
 
 /** Compute the keyboard range for a given note pool (extend max to next C for completeness). */
 function getKeyboardRange(pool: readonly string[]): { min: string; max: string } {
@@ -703,6 +703,7 @@ export default function DrillSession() {
                             { value: 'piano', label: t('staffNotation.trainingModePiano') },
                             { value: 'piano-no-labels', label: t('staffNotation.trainingModePianoNoLabels') },
                             { value: 'guitar', label: t('staffNotation.trainingModeGuitar') },
+                            { value: 'guitar-no-labels', label: t('staffNotation.trainingModeGuitarNoLabels') },
                           ]}
                           style={{ minWidth: 180 }}
                           size="small"
@@ -873,13 +874,13 @@ export default function DrillSession() {
           />
         )}
 
-        {/* Guitar fretboard (guitar mode) */}
-        {drillMode === 'guitar' && (
+        {/* Guitar fretboard (guitar modes) */}
+        {(drillMode === 'guitar' || drillMode === 'guitar-no-labels') && (
           <GuitarFretboard
             onKeyPress={(_pc, note) => handleAnswer(note)}
             highlightKeys={keyboardHighlights}
             disabled={chosen !== null}
-            showNoteLabels={true}
+            showNoteLabels={drillMode === 'guitar'}
             fretStart={fretStart}
             fretEnd={fretEnd}
             onFretRangeChange={handleFretRangeChange}

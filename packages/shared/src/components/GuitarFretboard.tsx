@@ -186,7 +186,7 @@ export default function GuitarFretboard({
     for (let f = clampedStart + 1; f <= clampedEnd + 1; f++) {
       const idx = f - clampedStart; // 1-based index from left edge
       const x = LEFT_PAD + idx * fretW;
-      lines.push({ x, label: f <= FRET_COUNT ? `${f - 1}` : '', isNut: false });
+      lines.push({ x, label: f <= FRET_COUNT ? `${f}` : '', isNut: false });
     }
     return lines;
   }, [clampedStart, clampedEnd, fretW]);
@@ -388,7 +388,7 @@ export default function GuitarFretboard({
                       pointerEvents: 'none',
                     }}
                   >
-                    {pos.pitchClass}
+                    {pos.note}
                   </text>
                 )}
               </g>
