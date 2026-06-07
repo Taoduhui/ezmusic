@@ -347,6 +347,23 @@ export default function GuitarFretboard({
               );
             })}
 
+          {/* String number labels — always visible on the right side */}
+          {GUITAR_STRINGS.map((_s, si) => {
+            const y = TOP_PAD + si * STRING_SPACING;
+            const rightX = LEFT_PAD + visibleFrets * fretW + RIGHT_PAD - 2;
+            return (
+              <text
+                key={`strnum-${si}`}
+                x={rightX + 2}
+                y={y + 4}
+                textAnchor="end"
+                style={{ fontSize: 10, fill: '#999', userSelect: 'none', fontWeight: 500 }}
+              >
+                {si + 1}
+              </text>
+            );
+          })}
+
           {/* Note positions (clickable circles) */}
           {positions.map((pos) => {
             const hlState = hlMap.get(pos.note);

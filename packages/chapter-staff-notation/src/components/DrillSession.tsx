@@ -120,6 +120,9 @@ function loadProgress(): DrillProgressStore {
         preferredMode: parsed.preferredMode,
         preferredKeySignature: parsed.preferredKeySignature,
         preferredAccidentals: parsed.preferredAccidentals,
+        progressPanelExpanded: parsed.progressPanelExpanded,
+        preferredFretStart: parsed.preferredFretStart,
+        preferredFretEnd: parsed.preferredFretEnd,
       };
     }
   } catch { /* ignore */ }
