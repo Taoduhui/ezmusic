@@ -18,7 +18,7 @@ import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
   Card, Button, Space, Typography, Progress, Tag,
   Tooltip, Popconfirm, Grid, Select, Collapse,
-  message,
+  message, Slider,
 } from 'antd';
 import {
   CheckOutlined, CloseOutlined, ReloadOutlined,
@@ -52,6 +52,37 @@ const { useBreakpoint } = Grid;
 
 const STORAGE_KEY = 'ezmusic-staff-drill-progress';
 const MASTERY_STREAK = 3;
+
+// ---------------------------------------------------------------------------
+// Piano keyboard range slider helpers
+// ---------------------------------------------------------------------------
+
+const CHROMATIC_PC = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+
+/** Generate all chromatic note names between two notes (inclusive). */
+function generateNoteNames(fromNote: string, toNote: string): string[] {
+  const flatToSharp: Record<string, string> = { Bb: 'A#', Db: 'C#', Eb: 'D#', Gb: 'F#', Ab: 'G#' };
+  const parseNoteName = (note: string) => {
+    const match = /^([A-G][#b]?)(\d+)$/.exec(note);
+    if (!match) throw new Error(`Invalid note: ${note}`);
+    return { pc: flatToSharp[match[1]] ?? match[1], octave: parseInt(match[2], 10) };
+  };
+  const from = parseNoteName(fromNote);
+  const to = parseNoteName(toNote);
+  const fromIdx = from.octave * 12 + CHROMATIC_PC.indexOf(from.pc);
+  const toIdx = to.octave * 12 + CHROMATIC_PC.indexOf(to.pc);
+  const notes: string[] = [];
+  for (let i = fromIdx; i <= toIdx; i++) {
+    notes.push(`${CHROMATIC_PC[i % 12]}${Math.floor(i / 12)}`);
+  }
+  return notes;
+}
+
+/** Complete chromatic note list from C2 to C6 (the full available piano range). */
+const ALL_PIANO_NOTES = generateNoteNames('C2', 'C6');
+
+/** Minimum number of chromatic notes visible on the keyboard. */
+const MIN_PIANO_RANGE = 12;
 const NOTE_PLAY_DURATION = 0.8;
 const ANSWER_FEEDBACK_DELAY_MS = NOTE_PLAY_DURATION * 1000 + 150;
 /** Delay before auto-advancing to next question on correct answer */
@@ -101,6 +132,9 @@ interface DrillProgressStore {
   /** Persisted guitar fretboard range */
   preferredFretStart?: number;
   preferredFretEnd?: number;
+  /** Persisted piano keyboard range (indices into ALL_PIANO_NOTES) */
+  preferredPianoRangeStart?: number;
+  preferredPianoRangeEnd?: number;
 }
 
 function emptyProgress(): DrillProgressStore {
@@ -123,6 +157,8 @@ function loadProgress(): DrillProgressStore {
         progressPanelExpanded: parsed.progressPanelExpanded,
         preferredFretStart: parsed.preferredFretStart,
         preferredFretEnd: parsed.preferredFretEnd,
+        preferredPianoRangeStart: parsed.preferredPianoRangeStart,
+        preferredPianoRangeEnd: parsed.preferredPianoRangeEnd,
       };
     }
   } catch { /* ignore */ }
@@ -334,6 +370,27 @@ export default function DrillSession() {
     setFretStart(start);
     setFretEnd(end);
   }, []);
+
+  // Piano keyboard range (indices into ALL_PIANO_NOTES)
+  const [pianoRangeStart, setPianoRangeStart] = useState<number>(
+    initialProgress.preferredPianoRangeStart ?? 0,
+  );
+  const [pianoRangeEnd, setPianoRangeEnd] = useState<number>(
+    initialProgress.preferredPianoRangeEnd ?? ALL_PIANO_NOTES.length - 1,
+  );
+
+  // Clamp piano range to ensure minimum visible range
+  const clampedPianoStart = Math.max(0, Math.min(pianoRangeStart, ALL_PIANO_NOTES.length - 1 - MIN_PIANO_RANGE));
+  const clampedPianoEnd = Math.max(
+    clampedPianoStart + MIN_PIANO_RANGE,
+    Math.min(pianoRangeEnd, ALL_PIANO_NOTES.length - 1),
+  );
+
+  const handlePianoRangeChange = useCallback((val: number[]) => {
+    setPianoRangeStart(val[0]);
+    setPianoRangeEnd(val[1]);
+  }, []);
+
   const [currentNote, setCurrentNote] = useState<string | null>(null);
   const [choices, setChoices] = useState<string[]>([]);
   const [chosen, setChosen] = useState<string | null>(null);
@@ -353,10 +410,13 @@ export default function DrillSession() {
     () => (currentNote ? getClefForNote(currentNote, stage) : 'treble'),
     [currentNote, stage],
   );
-  // Keyboard range for piano mode
+  // Keyboard range for piano mode (user-controlled via slider)
   const keyboardRange = useMemo(
-    () => getKeyboardRange(effectivePool),
-    [effectivePool],
+    () => ({
+      min: ALL_PIANO_NOTES[clampedPianoStart] ?? effectivePool[0],
+      max: ALL_PIANO_NOTES[clampedPianoEnd] ?? effectivePool[effectivePool.length - 1],
+    }),
+    [clampedPianoStart, clampedPianoEnd, effectivePool],
   );
 
   // Detect single-octave keyboard for fillWidth mode
@@ -451,8 +511,10 @@ export default function DrillSession() {
       preferredAccidentals: selectedAccidentals,
       preferredFretStart: fretStart,
       preferredFretEnd: fretEnd,
+      preferredPianoRangeStart: pianoRangeStart,
+      preferredPianoRangeEnd: pianoRangeEnd,
     }));
-  }, [stage, drillMode, keySignature, selectedAccidentals, fretStart, fretEnd]);
+  }, [stage, drillMode, keySignature, selectedAccidentals, fretStart, fretEnd, pianoRangeStart, pianoRangeEnd]);
 
   // Clear auto-advance timeout on unmount
   useEffect(() => {
@@ -866,15 +928,31 @@ export default function DrillSession() {
 
         {/* Piano keyboard (piano modes) */}
         {(drillMode === 'piano' || drillMode === 'piano-no-labels') && (
-          <PianoKeyboard
-            onKeyPress={(_pc, note) => handleAnswer(note)}
-            noteRange={keyboardRange}
-            highlightKeys={keyboardHighlights}
-            disabled={chosen !== null}
-            showNoteLabels={drillMode === 'piano'}
-            fillWidth={isSingleOctave}
-            maxHeight={200}
-          />
+          <>
+            {/* Range slider — controls the visible note range on the keyboard */}
+            <div style={{ padding: '0 40px 8px' }}>
+              <Slider
+                range
+                min={0}
+                max={ALL_PIANO_NOTES.length - 1}
+                value={[clampedPianoStart, clampedPianoEnd]}
+                onChange={handlePianoRangeChange}
+                tooltip={{
+                  formatter: (v) => ALL_PIANO_NOTES[v ?? 0] ?? '',
+                }}
+                style={{ margin: 0 }}
+              />
+            </div>
+            <PianoKeyboard
+              onKeyPress={(_pc, note) => handleAnswer(note)}
+              noteRange={keyboardRange}
+              highlightKeys={keyboardHighlights}
+              disabled={chosen !== null}
+              showNoteLabels={drillMode === 'piano'}
+              fillWidth={isSingleOctave}
+              maxHeight={200}
+            />
+          </>
         )}
 
         {/* Guitar fretboard (guitar modes) */}
