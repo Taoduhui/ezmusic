@@ -192,6 +192,13 @@ const enUS = {
     intervalPromotionReached: 'Auto-expanded to {{min}} - {{max}} semitones',
     intervalWrongAnswer: 'Answer: {{answer}} semitones',
   },
+  pwa: {
+    updateAvailable: 'New version available',
+    updateDescription: 'A new version is ready. Update now for the latest experience.',
+    updateAction: 'Update now',
+    updating: 'Updating…',
+    offlineReady: 'Ready for offline use',
+  },
 };
 
 export default enUS;

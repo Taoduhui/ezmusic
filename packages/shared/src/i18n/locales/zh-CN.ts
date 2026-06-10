@@ -187,6 +187,13 @@ const zhCN = {
     intervalPromotionReached: '已自动扩展到 {{min}} - {{max}} 半音',
     intervalWrongAnswer: '答案是 {{answer}} 个半音',
   },
+  pwa: {
+    updateAvailable: '发现新版本',
+    updateDescription: '新版本已就绪，点击更新立即体验。',
+    updateAction: '立即更新',
+    updating: '正在更新…',
+    offlineReady: '已可离线使用',
+  },
 };
 
 export default zhCN;
