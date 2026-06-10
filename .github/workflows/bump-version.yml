@@ -1,0 +1,64 @@
+name: Bump Version
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bump-version
+  cancel-in-progress: true
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[skip ci]') && !contains(github.event.head_commit.message, 'chore: bump version')"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Bump version
+        id: bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Bump root package.json
+          ROOT_VER=$(node -p "require('./package.json').version")
+          ROOT_NEW=$(node -p "const v='$ROOT_VER'.split('.');v[2]=Number(v[2])+1;v.join('.')")
+          node -e "
+            const pkg = require('./package.json');
+            pkg.version = '$ROOT_NEW';
+            require('fs').writeFileSync('./package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+          echo "root_old=$ROOT_VER" >> $GITHUB_OUTPUT
+          echo "root_new=$ROOT_NEW" >> $GITHUB_OUTPUT
+
+          # Bump app package.json
+          APP_VER=$(node -p "require('./packages/app/package.json').version")
+          APP_NEW=$(node -p "const v='$APP_VER'.split('.');v[2]=Number(v[2])+1;v.join('.')")
+          node -e "
+            const pkg = require('./packages/app/package.json');
+            pkg.version = '$APP_NEW';
+            require('fs').writeFileSync('./packages/app/package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+          echo "app_old=$APP_VER" >> $GITHUB_OUTPUT
+          echo "app_new=$APP_NEW" >> $GITHUB_OUTPUT
+
+      - name: Commit and push
+        run: |
+          git add package.json packages/app/package.json
+          git commit -m "chore: bump version to v${{ steps.bump.outputs.root_new }} [skip ci]"
+          git push

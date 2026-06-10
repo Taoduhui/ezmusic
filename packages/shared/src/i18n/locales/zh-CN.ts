@@ -193,6 +193,9 @@ const zhCN = {
     updateAction: '立即更新',
     updating: '正在更新…',
     offlineReady: '已可离线使用',
+    checkUpdate: '检查更新',
+    checking: '检查中…',
+    upToDate: '已是最新',
   },
 };
 

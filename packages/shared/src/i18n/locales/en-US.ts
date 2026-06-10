@@ -198,6 +198,9 @@ const enUS = {
     updateAction: 'Update now',
     updating: 'Updating…',
     offlineReady: 'Ready for offline use',
+    checkUpdate: 'Check Update',
+    checking: 'Checking…',
+    upToDate: 'Up to date',
   },
 };
 

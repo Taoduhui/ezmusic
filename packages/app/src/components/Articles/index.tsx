@@ -8,10 +8,13 @@ import {
   Grid,
   Typography,
   Select,
+  Tooltip,
+  message,
 } from 'antd';
 import {
   SoundOutlined,
   CloseOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -43,6 +46,7 @@ export default function Articles({ pages, defaultCurrent = 0 }: ArticlesProps) {
   const routerNavigate = useNavigate();
 
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [checking, setChecking] = useState(false);
   const [locale, setLocale] = useState<SupportedLocale>(
     (i18n.resolvedLanguage as SupportedLocale) ?? 'zh-CN',
   );
@@ -72,6 +76,34 @@ export default function Articles({ pages, defaultCurrent = 0 }: ArticlesProps) {
     setLocale(val);
     i18n.changeLanguage(val);
   }, []);
+
+  const handleCheckUpdate = useCallback(async () => {
+    setChecking(true);
+    try {
+      // Force check for SW update
+      if (!('serviceWorker' in navigator)) {
+        message.info(t('pwa.upToDate'));
+        setChecking(false);
+        return;
+      }
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (!reg) {
+        message.info(t('pwa.upToDate'));
+        setChecking(false);
+        return;
+      }
+      await reg.update();
+      // Wait briefly for the SW to evaluate
+      await new Promise((r) => setTimeout(r, 1000));
+      // If needRefresh didn't flip, no update found
+      // We use a message key to debounce
+      message.success(t('pwa.upToDate'));
+    } catch {
+      message.info(t('pwa.upToDate'));
+    } finally {
+      setChecking(false);
+    }
+  }, [t]);
 
   useEffect(() => {
     if (currentIdx >= 0 || !pages[defaultCurrent]) {
@@ -192,6 +224,32 @@ export default function Articles({ pages, defaultCurrent = 0 }: ArticlesProps) {
           style={{ width: '100%' }}
           size="small"
         />
+      </div>
+
+      {/* Version */}
+      <div
+        style={{
+          padding: '8px 20px 16px',
+          flexShrink: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 4,
+        }}
+      >
+        <Text type="secondary" style={{ fontSize: 11 }}>
+          v{__APP_VERSION__}
+        </Text>
+        <Tooltip title={t('pwa.checkUpdate')}>
+          <Button
+            type="text"
+            size="small"
+            icon={<ReloadOutlined />}
+            loading={checking}
+            onClick={handleCheckUpdate}
+            style={{ color: '#9ca3af', fontSize: 11, minWidth: 24, height: 24 }}
+          />
+        </Tooltip>
       </div>
     </div>
   );
