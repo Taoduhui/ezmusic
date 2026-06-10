@@ -1,6 +1,6 @@
 {
   "name": "ezmusic",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "private": true,
   "scripts": {
     "dev": "pnpm --filter @ezmusic/app dev",
@@ -17,7 +17,11 @@
     "typescript": "^5.4.5"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild", "sharp", "sharp-ico"]
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "sharp",
+      "sharp-ico"
+    ]
   },
   "engines": {
     "node": ">=18.0.0",
