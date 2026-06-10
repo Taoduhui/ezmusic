@@ -5,8 +5,9 @@
  * Standard tuning (low to high): E2 A2 D3 G3 B3 E4
  * Visual layout: string 1 (high E) at TOP, string 6 (low E) at BOTTOM
  *
- * The visible fret range is controlled by a dual-handle range slider.
- * The fretboard zooms so the selected range fills the available width.
+ * Each fret has a fixed width so that at most 5 frets fit on screen at once.
+ * The fretboard scrolls horizontally to reach higher frets.
+ * A dual-handle range slider selects the drill range (fretStart..fretEnd).
  */
 import { useMemo, useRef, useEffect, useCallback, useState } from 'react';
 import { Slider } from 'antd';
@@ -34,14 +35,18 @@ const FRET_COUNT = 24;
 
 /** Minimum number of frets shown */
 const MIN_VISIBLE_FRETS = 4;
+/** Fixed number of frets that fit on one screen */
+const FRETS_PER_SCREEN = 5;
 
-// Layout constants (base values — actual FRET_W is dynamic)
+// Layout constants
 const LEFT_PAD = 36;
 const STRING_SPACING = 34;
 const TOP_PAD = 32;
 const BOTTOM_PAD = 16;
 const RIGHT_PAD = 8;
 const NOTE_RADIUS = 14;
+/** Minimum fret width in px */
+const MIN_FRET_W = 56;
 
 // Total height (fixed)
 const TOTAL_H = TOP_PAD + (GUITAR_STRINGS.length - 1) * STRING_SPACING + BOTTOM_PAD;
@@ -112,9 +117,9 @@ export interface GuitarFretboardProps {
   disabled?: boolean;
   /** Show note labels on fret positions (default true) */
   showNoteLabels?: boolean;
-  /** Leftmost visible fret (inclusive). Default 0. */
+  /** Leftmost fret in drill range (inclusive). Default 0. */
   fretStart?: number;
-  /** Rightmost visible fret (inclusive). Default 12. */
+  /** Rightmost fret in drill range (inclusive). Default 12. */
   fretEnd?: number;
   /** Called when the user drags the range slider handles */
   onFretRangeChange?: (start: number, end: number) => void;
@@ -134,6 +139,7 @@ export default function GuitarFretboard({
   onFretRangeChange,
 }: GuitarFretboardProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
 
   // Measure container width
@@ -149,21 +155,28 @@ export default function GuitarFretboard({
     return () => ro.disconnect();
   }, []);
 
-  // Clamp range
+  // Clamp drill range
   const clampedStart = Math.max(0, Math.min(fretStart, FRET_COUNT - MIN_VISIBLE_FRETS));
   const clampedEnd = Math.max(
     clampedStart + MIN_VISIBLE_FRETS,
     Math.min(fretEnd, FRET_COUNT),
   );
 
-  const visibleFrets = clampedEnd - clampedStart;
-
-  // Dynamic fret width based on container and visible range
+  // Fixed fret width — exactly FRETS_PER_SCREEN fit the available width
   const availW = Math.max(containerWidth - LEFT_PAD - RIGHT_PAD, 200);
-  const fretW = visibleFrets > 0 ? availW / visibleFrets : 56;
+  const fretW = Math.max(availW / FRETS_PER_SCREEN, MIN_FRET_W);
 
-  // SVG viewport width
-  const svgW = Math.max(LEFT_PAD + visibleFrets * fretW + RIGHT_PAD, 300);
+  // SVG viewport covers all frets
+  const svgW = LEFT_PAD + FRET_COUNT * fretW + RIGHT_PAD;
+
+  // Auto-scroll so the drill range start is visible when fretStart changes
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || fretW <= 0) return;
+    // Scroll so clampedStart is near the left edge
+    const targetX = clampedStart > 0 ? LEFT_PAD + (clampedStart - 0.5) * fretW : 0;
+    el.scrollTo({ left: targetX, behavior: 'smooth' });
+  }, [clampedStart, fretW]);
 
   // Build highlight lookup
   const hlMap = useMemo(() => {
@@ -176,22 +189,19 @@ export default function GuitarFretboard({
     return map;
   }, [highlightKeys]);
 
-  // Fret lines within the visible range
+  // Fret lines for all frets (0 = nut, 1..FRET_COUNT)
   const fretLines = useMemo(() => {
     const lines: { x: number; label: string; isNut: boolean }[] = [];
-    // The line at the left edge
-    if (clampedStart === 0) {
-      lines.push({ x: LEFT_PAD, label: '', isNut: true });
-    }
-    for (let f = clampedStart + 1; f <= clampedEnd + 1; f++) {
-      const idx = f - clampedStart; // 1-based index from left edge
-      const x = LEFT_PAD + idx * fretW;
-      lines.push({ x, label: f <= FRET_COUNT ? `${f}` : '', isNut: false });
+    // Nut
+    lines.push({ x: LEFT_PAD, label: '', isNut: true });
+    for (let f = 1; f <= FRET_COUNT; f++) {
+      const x = LEFT_PAD + f * fretW;
+      lines.push({ x, label: `${f}`, isNut: false });
     }
     return lines;
-  }, [clampedStart, clampedEnd, fretW]);
+  }, [fretW]);
 
-  // Note positions
+  // Note positions for all frets (0..FRET_COUNT)
   const positions = useMemo(() => {
     const result: {
       stringIdx: number;
@@ -202,22 +212,21 @@ export default function GuitarFretboard({
       y: number;
     }[] = [];
     for (let si = 0; si < GUITAR_STRINGS.length; si++) {
-      for (let f = clampedStart; f <= clampedEnd; f++) {
+      for (let f = 0; f <= FRET_COUNT; f++) {
         const note = getFretNote(si, f);
         const pitchClass = getFretPitchClass(si, f);
         let x: number;
         if (f === 0) {
           x = LEFT_PAD / 2; // open string — left of nut
         } else {
-          const idx = f - clampedStart; // 1-based
-          x = LEFT_PAD + (idx - 0.5) * fretW;
+          x = LEFT_PAD + (f - 0.5) * fretW; // center of fret f
         }
         const y = TOP_PAD + si * STRING_SPACING;
         result.push({ stringIdx: si, fret: f, note, pitchClass, x, y });
       }
     }
     return result;
-  }, [clampedStart, clampedEnd, fretW]);
+  }, [fretW]);
 
   // Slider handlers
   const handleSliderChange = useCallback(
@@ -232,7 +241,7 @@ export default function GuitarFretboard({
 
   return (
     <div ref={containerRef}>
-      {/* Range slider */}
+      {/* Range slider — selects drill range */}
       <div style={{ padding: '0 40px 8px' }}>
         <Slider
           range
@@ -247,29 +256,38 @@ export default function GuitarFretboard({
         />
       </div>
 
-      {/* Fretboard SVG */}
-      <div style={{ overflowX: 'hidden' }}>
+      {/* Fretboard SVG — horizontally scrollable */}
+      <div ref={scrollRef} style={{ overflowX: 'auto' }}>
         <svg
-          width="100%"
+          width={svgW}
           height={TOTAL_H}
           viewBox={`0 0 ${svgW} ${TOTAL_H}`}
           preserveAspectRatio="xMidYMid meet"
-          style={{ display: 'block' }}
+          style={{ display: 'block', minWidth: '100%' }}
         >
-          {/* Fretboard background */}
+          {/* Fretboard background — full width */}
           <rect
             x={LEFT_PAD}
             y={TOP_PAD - 10}
-            width={visibleFrets * fretW}
+            width={FRET_COUNT * fretW}
             height={(GUITAR_STRINGS.length - 1) * STRING_SPACING + 20}
             fill="#faf7f2"
             rx={4}
           />
 
-          {/* Fret markers (dots) — only those within visible range */}
-          {FRET_MARKERS.filter((f) => f >= clampedStart && f <= clampedEnd).map((fret) => {
-            const idx = fret - clampedStart;
-            const x = LEFT_PAD + (idx - 0.5) * fretW; // center of fret f
+          {/* Drill range highlight */}
+          <rect
+            x={clampedStart === 0 ? LEFT_PAD / 2 : LEFT_PAD + (clampedStart - 0.5) * fretW}
+            y={TOP_PAD - 10}
+            width={(clampedEnd - clampedStart) * fretW + (clampedStart === 0 ? LEFT_PAD / 2 : 0)}
+            height={(GUITAR_STRINGS.length - 1) * STRING_SPACING + 20}
+            fill="#fef3c7"
+            rx={4}
+          />
+
+          {/* Fret markers (dots) — all */}
+          {FRET_MARKERS.map((fret) => {
+            const x = LEFT_PAD + (fret - 0.5) * fretW;
             const midY = TOP_PAD + 2.5 * STRING_SPACING;
             const topY = TOP_PAD + 0.5 * STRING_SPACING;
             const botY = TOP_PAD + 4.5 * STRING_SPACING;
@@ -288,7 +306,7 @@ export default function GuitarFretboard({
             );
           })}
 
-          {/* Fret lines (vertical) */}
+          {/* Fret lines (vertical) — all */}
           {fretLines.map((fl, i) => (
             <g key={`fretline-${i}`}>
               <line
@@ -299,7 +317,6 @@ export default function GuitarFretboard({
                 stroke={fl.isNut ? '#555' : '#c0c0c0'}
                 strokeWidth={fl.isNut ? 3 : 1.5}
               />
-              {/* Fret number label */}
               {fl.label && (
                 <text
                   x={fl.x}
@@ -313,7 +330,7 @@ export default function GuitarFretboard({
             </g>
           ))}
 
-          {/* String lines (horizontal) */}
+          {/* String lines (horizontal) — full width */}
           {GUITAR_STRINGS.map((_str, si) => {
             const y = TOP_PAD + si * STRING_SPACING;
             const thickness = Math.max(1, 2.5 - si * 0.3);
@@ -322,7 +339,7 @@ export default function GuitarFretboard({
                 key={`string-${si}`}
                 x1={LEFT_PAD - 8}
                 y1={y}
-                x2={LEFT_PAD + visibleFrets * fretW}
+                x2={LEFT_PAD + FRET_COUNT * fretW}
                 y2={y}
                 stroke="#bbb"
                 strokeWidth={thickness}
@@ -330,27 +347,26 @@ export default function GuitarFretboard({
             );
           })}
 
-          {/* String labels (open string notes) — only when start = 0 */}
-          {clampedStart === 0 &&
-            GUITAR_STRINGS.map((_s, si) => {
-              const y = TOP_PAD + si * STRING_SPACING;
-              return (
-                <text
-                  key={`slabel-${si}`}
-                  x={LEFT_PAD / 2 - 2}
-                  y={y + 4}
-                  textAnchor="middle"
-                  style={{ fontSize: 10, fill: '#888', userSelect: 'none', fontWeight: 500 }}
-                >
-                  {parseNote(_s.baseNote).pitchClass}
-                </text>
-              );
-            })}
-
-          {/* String number labels — always visible on the right side */}
+          {/* String labels (open string notes) */}
           {GUITAR_STRINGS.map((_s, si) => {
             const y = TOP_PAD + si * STRING_SPACING;
-            const rightX = LEFT_PAD + visibleFrets * fretW + RIGHT_PAD - 2;
+            return (
+              <text
+                key={`slabel-${si}`}
+                x={LEFT_PAD / 2 - 2}
+                y={y + 4}
+                textAnchor="middle"
+                style={{ fontSize: 10, fill: '#888', userSelect: 'none', fontWeight: 500 }}
+              >
+                {parseNote(_s.baseNote).pitchClass}
+              </text>
+            );
+          })}
+
+          {/* String number labels — at the far right */}
+          {GUITAR_STRINGS.map((_s, si) => {
+            const y = TOP_PAD + si * STRING_SPACING;
+            const rightX = LEFT_PAD + FRET_COUNT * fretW + RIGHT_PAD - 2;
             return (
               <text
                 key={`strnum-${si}`}
@@ -364,7 +380,7 @@ export default function GuitarFretboard({
             );
           })}
 
-          {/* Note positions (clickable circles) */}
+          {/* Note positions (clickable circles) — all frets */}
           {positions.map((pos) => {
             const hlState = hlMap.get(pos.note);
             const { bg, border, textColor } = noteBg(hlState);
