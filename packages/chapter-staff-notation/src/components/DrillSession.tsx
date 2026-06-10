@@ -521,6 +521,11 @@ export default function DrillSession() {
     } else {
       rangeNotes = getGuitarRangeNotes(fretStart, fretEnd);
     }
+    // Keep only natural notes — accidentals are controlled by selectedAccidentals
+    rangeNotes = rangeNotes.filter((n) => {
+      const pc = n.replace(/\d+$/, '');
+      return !pc.includes('#') && !pc.includes('b');
+    });
     return applyKeyToPool(rangeNotes, keySignature);
   }, [stage, effectivePool, drillMode, keySignature, clampedPianoStart, clampedPianoEnd, fretStart, fretEnd]);
 
@@ -689,6 +694,10 @@ export default function DrillSession() {
           } else {
             rangeNotes = getGuitarRangeNotes(fretStart, fretEnd);
           }
+          rangeNotes = rangeNotes.filter((n) => {
+            const pc = n.replace(/\d+$/, '');
+            return !pc.includes('#') && !pc.includes('b');
+          });
           targetPool = applyKeyToPool(rangeNotes, keySignature);
         } else {
           targetPool = applyKeyToPool(DRILL_STAGE_NOTES[s], keySignature);
@@ -712,6 +721,10 @@ export default function DrillSession() {
       } else {
         rangeNotes = getGuitarRangeNotes(fretStart, fretEnd);
       }
+      rangeNotes = rangeNotes.filter((n) => {
+        const pc = n.replace(/\d+$/, '');
+        return !pc.includes('#') && !pc.includes('b');
+      });
       initialPool = applyKeyToPool(rangeNotes, keySignature);
     } else {
       initialPool = applyKeyToPool(pool, keySignature);
@@ -733,6 +746,10 @@ export default function DrillSession() {
         } else {
           rangeNotes = getGuitarRangeNotes(fretStart, fretEnd);
         }
+        rangeNotes = rangeNotes.filter((n) => {
+          const pc = n.replace(/\d+$/, '');
+          return !pc.includes('#') && !pc.includes('b');
+        });
         newPool = applyKeyToPool(rangeNotes, keySignature);
       } else {
         newPool = applyKeyToPool(pool, keySignature);
