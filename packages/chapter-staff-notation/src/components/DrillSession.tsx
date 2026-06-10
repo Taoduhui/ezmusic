@@ -420,6 +420,11 @@ export default function DrillSession() {
     initialProgress.preferredPianoRangeEnd ?? ALL_PIANO_NOTES.length - 1,
   );
 
+  // Middle drag-handle state & ref for piano range slider
+  const pianoSliderWrapRef = useRef<HTMLDivElement>(null);
+  const [pianoDraggingRange, setPianoDraggingRange] = useState(false);
+  const pianoDragStateRef = useRef({ startX: 0, origStart: 0, origEnd: 0 });
+
   // Clamp piano range to ensure minimum visible range
   const clampedPianoStart = Math.max(0, Math.min(pianoRangeStart, ALL_PIANO_NOTES.length - 1 - MIN_PIANO_RANGE));
   const clampedPianoEnd = Math.max(
@@ -431,6 +436,65 @@ export default function DrillSession() {
     setPianoRangeStart(val[0]);
     setPianoRangeEnd(val[1]);
   }, []);
+
+  // ---- Piano middle range-drag handlers ----
+  const pianoMaxSlider = ALL_PIANO_NOTES.length - 1;
+
+  const handlePianoRangeDragStart = useCallback(
+    (e: React.MouseEvent | React.TouchEvent) => {
+      e.preventDefault();
+      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+      pianoDragStateRef.current = { startX: clientX, origStart: clampedPianoStart, origEnd: clampedPianoEnd };
+      setPianoDraggingRange(true);
+    },
+    [clampedPianoStart, clampedPianoEnd],
+  );
+
+  useEffect(() => {
+    if (!pianoDraggingRange) return;
+
+    const handleMove = (e: MouseEvent | TouchEvent) => {
+      if ('touches' in e) e.preventDefault();
+      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+      const wrap = pianoSliderWrapRef.current;
+      if (!wrap) return;
+
+      const rail = wrap.querySelector('.ant-slider-rail') as HTMLElement;
+      if (!rail) return;
+
+      const railRect = rail.getBoundingClientRect();
+      const totalPxDelta = clientX - pianoDragStateRef.current.startX;
+      const valueDelta = Math.round((totalPxDelta / railRect.width) * pianoMaxSlider);
+
+      const rangeLen = pianoDragStateRef.current.origEnd - pianoDragStateRef.current.origStart;
+      let newStart = pianoDragStateRef.current.origStart + valueDelta;
+      let newEnd = newStart + rangeLen;
+
+      if (newStart < 0) { newStart = 0; newEnd = rangeLen; }
+      if (newEnd > pianoMaxSlider) { newEnd = pianoMaxSlider; newStart = pianoMaxSlider - rangeLen; }
+
+      setPianoRangeStart(newStart);
+      setPianoRangeEnd(newEnd);
+    };
+
+    const handleEnd = () => setPianoDraggingRange(false);
+
+    document.addEventListener('mousemove', handleMove);
+    document.addEventListener('mouseup', handleEnd);
+    document.addEventListener('touchmove', handleMove, { passive: false });
+    document.addEventListener('touchend', handleEnd);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMove);
+      document.removeEventListener('mouseup', handleEnd);
+      document.removeEventListener('touchmove', handleMove);
+      document.removeEventListener('touchend', handleEnd);
+    };
+  }, [pianoDraggingRange, pianoMaxSlider, clampedPianoStart, clampedPianoEnd, setPianoRangeStart, setPianoRangeEnd]);
+
+  // Piano middle-handle position percentages
+  const pianoRangeMidPercent = ((clampedPianoStart + clampedPianoEnd) / 2 / pianoMaxSlider) * 100;
+  const pianoRangeWidthPercent = ((clampedPianoEnd - clampedPianoStart) / pianoMaxSlider) * 100;
 
   const [currentNote, setCurrentNote] = useState<string | null>(null);
   const [choices, setChoices] = useState<string[]>([]);
@@ -1016,18 +1080,82 @@ export default function DrillSession() {
         {(drillMode === 'piano' || drillMode === 'piano-no-labels') && (
           <>
             {/* Range slider — controls the visible note range on the keyboard */}
-            <div style={{ padding: '0 40px 8px' }}>
-              <Slider
-                range
-                min={0}
-                max={ALL_PIANO_NOTES.length - 1}
-                value={[clampedPianoStart, clampedPianoEnd]}
-                onChange={handlePianoRangeChange}
-                tooltip={{
-                  formatter: (v) => ALL_PIANO_NOTES[v ?? 0] ?? '',
+            <div ref={pianoSliderWrapRef} style={{ position: 'relative' }}>
+              <div style={{ padding: '0 40px 8px' }}>
+                <Slider
+                  range
+                  min={0}
+                  max={pianoMaxSlider}
+                  value={[clampedPianoStart, clampedPianoEnd]}
+                  onChange={handlePianoRangeChange}
+                  tooltip={{
+                    formatter: (v) => ALL_PIANO_NOTES[v ?? 0] ?? '',
+                  }}
+                  style={{ margin: 0 }}
+                />
+              </div>
+
+              {/* Overlay that matches the Slider's area */}
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 40,
+                  right: 40,
+                  bottom: 8,
+                  pointerEvents: 'none',
                 }}
-                style={{ margin: 0 }}
-              />
+              >
+                {/* Draggable range-grip */}
+                <div
+                  onMouseDown={handlePianoRangeDragStart}
+                  onTouchStart={handlePianoRangeDragStart}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    bottom: 0,
+                    left: `${pianoRangeMidPercent}%`,
+                    width: `${pianoRangeWidthPercent}%`,
+                    transform: 'translateX(-50%)',
+                    cursor: 'grab',
+                    pointerEvents: 'auto',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                  title="拖动整体移动范围"
+                >
+                  <div
+                    style={{
+                      width: 28,
+                      height: 18,
+                      borderRadius: 9,
+                      background: pianoDraggingRange ? '#1677ff' : '#d9d9d9',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 2,
+                      transition: 'background 0.15s',
+                      boxShadow: pianoDraggingRange
+                        ? '0 2px 6px rgba(22,119,255,0.35)'
+                        : '0 1px 3px rgba(0,0,0,0.12)',
+                    }}
+                  >
+                    {[0, 1, 2].map((i) => (
+                      <span
+                        key={i}
+                        style={{
+                          width: 3,
+                          height: 3,
+                          borderRadius: '50%',
+                          background: '#fff',
+                          display: 'block',
+                        }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
             </div>
             <PianoKeyboard
               onKeyPress={(_pc, note) => handleAnswer(note)}
