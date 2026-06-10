@@ -43,6 +43,7 @@ import {
   useAudio,
   triggerOpenDrawer,
   isAccidentalApplicable,
+  expandPoolWithAccidentals,
 } from '@ezmusic/shared';
 import StaffDisplay from './StaffDisplay';
 import { PianoKeyboard, GuitarFretboard, type KeyHighlight } from '@ezmusic/shared';
@@ -522,6 +523,13 @@ export default function DrillSession() {
     }
     return applyKeyToPool(rangeNotes, keySignature);
   }, [stage, effectivePool, drillMode, keySignature, clampedPianoStart, clampedPianoEnd, fretStart, fretEnd]);
+
+  /** Pool expanded with all possible accidental variants for progress display */
+  const displayPool = useMemo(
+    () => expandPoolWithAccidentals(questionPool, selectedAccidentals),
+    [questionPool, selectedAccidentals],
+  );
+
   const clef = useMemo(
     () => (currentNote ? getClefForNote(currentNote, stage) : 'treble'),
     [currentNote, stage],
@@ -809,7 +817,7 @@ export default function DrillSession() {
     const newStore: DrillProgressStore = {
       ...store,
       noteProgress: Object.fromEntries(
-        Object.entries(store.noteProgress).filter(([k]) => !questionPool.includes(k)),
+        Object.entries(store.noteProgress).filter(([k]) => !displayPool.includes(k)),
       ),
     };
     setStore(newStore);
@@ -831,7 +839,7 @@ export default function DrillSession() {
     [chosen, currentNote],
   );
 
-  const masteredCount = questionPool.filter((n) => store.noteProgress[n]?.mastered).length;
+  const masteredCount = displayPool.filter((n) => store.noteProgress[n]?.mastered).length;
   const accuracy = sessionTotal > 0 ? Math.round((sessionCorrect / sessionTotal) * 100) : null;
   return (
     <div
@@ -888,13 +896,13 @@ export default function DrillSession() {
                 label: (
                   <Space size={8} wrap>
                     <Text style={{ fontSize: 13 }}>
-                      {t('staffNotation.stageProgress', { done: masteredCount, total: questionPool.length })}
+                      {t('staffNotation.stageProgress', { done: masteredCount, total: displayPool.length })}
                     </Text>
                     <Progress
-                      percent={Math.round((masteredCount / questionPool.length) * 100)}
+                      percent={Math.round((masteredCount / displayPool.length) * 100)}
                       size="small"
                       style={{ width: 120 }}
-                      strokeColor={masteredCount === questionPool.length ? '#059669' : '#7c3aed'}
+                      strokeColor={masteredCount === displayPool.length ? '#059669' : '#7c3aed'}
                     />
                     {accuracy !== null && (
                       <Tag icon={<TrophyOutlined />} color="gold">
@@ -999,7 +1007,7 @@ export default function DrillSession() {
                       </Popconfirm>
                     </div>
                     <ProgressBoard
-                      pool={questionPool}
+                      pool={displayPool}
                       noteProgress={store.noteProgress}
                       currentNote={chosen !== null ? currentNote : null}
                     />

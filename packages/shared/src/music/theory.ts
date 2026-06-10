@@ -603,6 +603,43 @@ export function applyRandomAccidental(
   return applySpecificAccidental(note, type, existingPool);
 }
 
+/**
+ * Expand a note pool to include all possible accidental variants based on
+ * the selected accidental types.  This is used for progress display so the
+ * user can see every note that *could* appear as a question.
+ *
+ * The logic mirrors the filtering in the drill's question generator: a base
+ * note is only included when at least one selected accidental type is
+ * applicable to it.
+ */
+export function expandPoolWithAccidentals(
+  pool: readonly string[],
+  selectedAccidentals: AccidentalOption[],
+): string[] {
+  const result = new Set<string>();
+
+  for (const note of pool) {
+    // Mirror the filteredPool logic — skip notes that can never appear
+    const hasApplicable = selectedAccidentals.some((type) =>
+      isAccidentalApplicable(note, type, pool),
+    );
+    if (!hasApplicable) continue;
+
+    for (const type of selectedAccidentals) {
+      if (type === 'natural') {
+        result.add(note);
+      } else if (isAccidentalApplicable(note, type, pool)) {
+        const variant = applySpecificAccidental(note, type, pool);
+        if (variant !== note) {
+          result.add(variant);
+        }
+      }
+    }
+  }
+
+  return [...result].sort();
+}
+
 /** Shuffle an array (Fisher-Yates, non-mutating) */
 export function shuffleArray<T>(arr: T[]): T[] {
   const result = [...arr];
