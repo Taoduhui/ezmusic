@@ -1,6 +1,6 @@
 {
   "name": "@ezmusic/app",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "private": true,
   "scripts": {
     "dev": "vite",
@@ -33,4 +33,3 @@
     "vite-plugin-pwa": "^1.3.0"
   }
 }
- 
