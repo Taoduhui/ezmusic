@@ -126,7 +126,7 @@ const zhCN = {
     trainingStage: '训练阶段',
     keySignatureLabel: '调号',
     accidentalLabel: '变音记号',
-    accidentalNone: '不变音',
+    accidentalNone: '自然音',
     accidentalSharp: '升号 ♯',
     accidentalFlat: '降号 ♭',
     accidentalNaturalSign: '还原号 ♮',

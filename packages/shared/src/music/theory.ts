@@ -461,7 +461,7 @@ export const ACCIDENTAL_OPTIONS: { value: AccidentalOption; labelKey: string }[]
  * the pool (e.g. E♯ → F, B♯ → C, F♭ → E, C♭ → B).
  *
  * When this returns `false`, the note should be excluded from the question
- * pool when the user has NOT selected "不变音" (natural).
+ * pool when the user has NOT selected "自然音" (natural).
  */
 export function isAccidentalApplicable(
   note: string,
@@ -522,8 +522,8 @@ export function pickRandomAccidental(
 
   if (applicable.length === 0) return null;
 
-  // When "不变音" is selected, ~35 % chance to apply an accidental.
-  // When "不变音" is NOT selected, always apply an accidental.
+  // When "自然音" is selected, ~35 % chance to apply an accidental.
+  // When "自然音" is NOT selected, always apply an accidental.
   if (includesNatural && Math.random() > 0.35) return null;
 
   return applicable[Math.floor(Math.random() * applicable.length)];

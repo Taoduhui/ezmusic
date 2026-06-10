@@ -565,7 +565,7 @@ export default function DrillSession() {
     (targetPool: string[], progress: Record<string, NoteProgress>, lastNote?: string) => {
       // Exclude notes where every selected accidental type would cause an
       // enharmonic simplification that collides with the note pool
-      // (e.g. E♯→F, B♯→C, F♭→E, C♭→B).  When "不变音" (natural) is
+      // (e.g. E♯→F, B♯→C, F♭→E, C♭→B).  When "自然音" (natural) is
       // selected, all notes pass the filter.
       const filteredPool = targetPool.filter((note) =>
         selectedAccidentals.some((accType) => isAccidentalApplicable(note, accType, targetPool)),
