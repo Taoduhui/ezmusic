@@ -259,6 +259,8 @@ export default function GuitarFretboard({
     if (!draggingRange) return;
 
     const handleMove = (e: MouseEvent | TouchEvent) => {
+      // Prevent page scroll on touch devices
+      if ('touches' in e) e.preventDefault();
       const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
       const wrap = sliderWrapRef.current;
       if (!wrap) return;
