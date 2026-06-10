@@ -306,7 +306,8 @@ export type DrillStage =
   | 'bass-c2'
   | 'bass-c3'
   | 'bass-c2c3'
-  | 'combined-grand';
+  | 'combined-grand'
+  | 'instrument-range';
 
 /** Ordered sequence of stages from beginner to advanced */
 export const DRILL_STAGE_ORDER: DrillStage[] = [
@@ -328,10 +329,12 @@ export const DRILL_STAGE_NOTES: Record<DrillStage, readonly string[]> = {
   'bass-c3': COMBINED_C3_NOTES,
   'bass-c2c3': BASS_2OCT_NOTES,
   'combined-grand': GRAND_STAFF_NOTES,
+  'instrument-range': [],
 };
 
 /** Which clef to use for rendering a stage */
 export function getClefForNote(_note: string, stage: DrillStage): 'treble' | 'bass' | 'grand' {
+  if (stage === 'instrument-range') return 'grand';
   if (stage.startsWith('bass-')) return 'bass';
   if (stage === 'combined-grand') return 'grand';
   return 'treble';

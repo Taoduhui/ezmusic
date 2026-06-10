@@ -81,6 +81,39 @@ function generateNoteNames(fromNote: string, toNote: string): string[] {
 /** Complete chromatic note list from C2 to C6 (the full available piano range). */
 const ALL_PIANO_NOTES = generateNoteNames('C2', 'C6');
 
+/** Guitar string tuning (low to high, standard tuning). */
+const GUITAR_STRINGS = ['E2', 'A2', 'D3', 'G3', 'B3', 'E4'];
+
+/** Chromatic pitch classes (sharp form) for note computation. */
+const GUITAR_CHROMATIC = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+const GUITAR_FLAT_TO_SHARP: Record<string, string> = { Bb: 'A#', Db: 'C#', Eb: 'D#', Gb: 'F#', Ab: 'G#' };
+
+/** Compute the note name at a given string index (0=low E2) and fret number. */
+function getGuitarFretNote(stringIdx: number, fret: number): string {
+  const baseNote = GUITAR_STRINGS[stringIdx];
+  const match = /^([A-G][#b]?)(\d+)$/.exec(baseNote);
+  if (!match) return baseNote;
+  const pc = GUITAR_FLAT_TO_SHARP[match[1]] ?? match[1];
+  const octave = parseInt(match[2], 10);
+  const baseIdx = GUITAR_CHROMATIC.indexOf(pc);
+  if (baseIdx === -1) return baseNote;
+  const totalIdx = baseIdx + fret;
+  const newOctave = octave + Math.floor(totalIdx / 12);
+  const newPC = GUITAR_CHROMATIC[totalIdx % 12];
+  return `${newPC}${newOctave}`;
+}
+
+/** Get all unique notes playable on the guitar within the given fret range. */
+function getGuitarRangeNotes(fretStart: number, fretEnd: number): string[] {
+  const notes = new Set<string>();
+  for (let s = 0; s < GUITAR_STRINGS.length; s++) {
+    for (let f = fretStart; f <= fretEnd; f++) {
+      notes.add(getGuitarFretNote(s, f));
+    }
+  }
+  return [...notes];
+}
+
 /** Minimum number of chromatic notes visible on the keyboard. */
 const MIN_PIANO_RANGE = 12;
 const NOTE_PLAY_DURATION = 0.8;
@@ -243,9 +276,10 @@ interface StageSelectorProps {
   current: DrillStage;
   onSelect: (s: DrillStage) => void;
   noteProgress: Record<string, NoteProgress>;
+  showInstrumentRange?: boolean;
 }
 
-function StageSelector({ current, onSelect, noteProgress }: StageSelectorProps) {
+function StageSelector({ current, onSelect, noteProgress, showInstrumentRange }: StageSelectorProps) {
   const { t } = useTranslation();
 
   const options = STAGE_INFO.map((s) => {
@@ -256,6 +290,13 @@ function StageSelector({ current, onSelect, noteProgress }: StageSelectorProps) 
       label: `${t(s.titleKey)} — ${mastered}/${pool.length}`,
     };
   });
+
+  if (showInstrumentRange) {
+    options.push({
+      value: 'instrument-range' as DrillStage,
+      label: t('staffNotation.stageInstrumentRange'),
+    });
+  }
 
   return (
     <Select
@@ -281,7 +322,7 @@ interface ProgressBoardProps {
 function ProgressBoard({ pool, noteProgress, currentNote }: ProgressBoardProps) {
   return (
     <div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(44px, 1fr))', gap: 6 }}>
+      <div style={{ display: 'grid', gridAutoFlow: 'column', gridAutoColumns: '44px', gap: 6, overflowX: 'auto' }}>
         {pool.map((note) => {
           const p = noteProgress[note];
           const streak = p?.correctStreak ?? 0;
@@ -312,7 +353,7 @@ function ProgressBoard({ pool, noteProgress, currentNote }: ProgressBoardProps) 
                 <Text style={{ fontSize: 11, fontWeight: 600, color: mastered ? '#065f46' : '#555', lineHeight: 1 }}>
                   {note}
                 </Text>
-                <div style={{ display: 'flex', gap: 2 }}>
+                <div style={{ display: 'flex', gap: 2, flexWrap: 'nowrap', overflowX: 'auto' }}>
                   {Array.from({ length: MASTERY_STREAK }).map((_, i) => (
                     <div
                       key={i}
@@ -406,6 +447,17 @@ export default function DrillSession() {
     () => applyKeyToPool(pool, keySignature),
     [pool, keySignature],
   );
+  // When stage is 'instrument-range', the note pool comes from the instrument's visible range
+  const questionPool = useMemo(() => {
+    if (stage !== 'instrument-range') return effectivePool;
+    let rangeNotes: string[];
+    if (drillMode === 'piano' || drillMode === 'piano-no-labels') {
+      rangeNotes = ALL_PIANO_NOTES.slice(clampedPianoStart, clampedPianoEnd + 1);
+    } else {
+      rangeNotes = getGuitarRangeNotes(fretStart, fretEnd);
+    }
+    return applyKeyToPool(rangeNotes, keySignature);
+  }, [stage, effectivePool, drillMode, keySignature, clampedPianoStart, clampedPianoEnd, fretStart, fretEnd]);
   const clef = useMemo(
     () => (currentNote ? getClefForNote(currentNote, stage) : 'treble'),
     [currentNote, stage],
@@ -534,13 +586,13 @@ export default function DrillSession() {
         autoAdvanceRef.current = null;
       }
 
-      const { note, choices } = generateQuestion(effectivePool, store.noteProgress, lastNote);
+      const { note, choices } = generateQuestion(questionPool, store.noteProgress, lastNote);
       setCurrentNote(note);
       setChoices(choices);
       setChosen(null);
       void playNote(note, NOTE_PLAY_DURATION);
     },
-    [effectivePool, store.noteProgress, playNote, generateQuestion],
+    [questionPool, store.noteProgress, playNote, generateQuestion],
   );
 
   // Start or restart the stage
@@ -557,19 +609,41 @@ export default function DrillSession() {
       setCurrentNote(null);
       // Slight delay so pool updates before generating question
       setTimeout(() => {
-        const targetPool = applyKeyToPool(DRILL_STAGE_NOTES[s], keySignature);
+        let targetPool: string[];
+        if (s === 'instrument-range') {
+          let rangeNotes: string[];
+          if (drillMode === 'piano' || drillMode === 'piano-no-labels') {
+            rangeNotes = ALL_PIANO_NOTES.slice(clampedPianoStart, clampedPianoEnd + 1);
+          } else {
+            rangeNotes = getGuitarRangeNotes(fretStart, fretEnd);
+          }
+          targetPool = applyKeyToPool(rangeNotes, keySignature);
+        } else {
+          targetPool = applyKeyToPool(DRILL_STAGE_NOTES[s], keySignature);
+        }
         const { note, choices } = generateQuestion(targetPool, store.noteProgress);
         setCurrentNote(note);
         setChoices(choices);
         void playNote(note, NOTE_PLAY_DURATION);
       }, 0);
     },
-    [store.noteProgress, playNote, keySignature, generateQuestion],
+    [store.noteProgress, playNote, keySignature, generateQuestion, drillMode, clampedPianoStart, clampedPianoEnd, fretStart, fretEnd],
   );
 
   // Initialize first question on mount
   useEffect(() => {
-    const initialPool = applyKeyToPool(pool, keySignature);
+    let initialPool: string[];
+    if (stage === 'instrument-range') {
+      let rangeNotes: string[];
+      if (drillMode === 'piano' || drillMode === 'piano-no-labels') {
+        rangeNotes = ALL_PIANO_NOTES.slice(clampedPianoStart, clampedPianoEnd + 1);
+      } else {
+        rangeNotes = getGuitarRangeNotes(fretStart, fretEnd);
+      }
+      initialPool = applyKeyToPool(rangeNotes, keySignature);
+    } else {
+      initialPool = applyKeyToPool(pool, keySignature);
+    }
     const { note, choices } = generateQuestion(initialPool, store.noteProgress);
     setCurrentNote(note);
     setChoices(choices);
@@ -579,7 +653,18 @@ export default function DrillSession() {
   // Regenerate question when key signature or accidental selection changes
   useEffect(() => {
     if (currentNote === null) {
-      const newPool = applyKeyToPool(pool, keySignature);
+      let newPool: string[];
+      if (stage === 'instrument-range') {
+        let rangeNotes: string[];
+        if (drillMode === 'piano' || drillMode === 'piano-no-labels') {
+          rangeNotes = ALL_PIANO_NOTES.slice(clampedPianoStart, clampedPianoEnd + 1);
+        } else {
+          rangeNotes = getGuitarRangeNotes(fretStart, fretEnd);
+        }
+        newPool = applyKeyToPool(rangeNotes, keySignature);
+      } else {
+        newPool = applyKeyToPool(pool, keySignature);
+      }
       const { note, choices } = generateQuestion(newPool, store.noteProgress);
       setCurrentNote(note);
       setChoices(choices);
@@ -660,16 +745,16 @@ export default function DrillSession() {
     const newStore: DrillProgressStore = {
       ...store,
       noteProgress: Object.fromEntries(
-        Object.entries(store.noteProgress).filter(([k]) => !effectivePool.includes(k)),
+        Object.entries(store.noteProgress).filter(([k]) => !questionPool.includes(k)),
       ),
     };
     setStore(newStore);
     setChosen(null);
-    const { note, choices } = generateQuestion(effectivePool, newStore.noteProgress);
+    const { note, choices } = generateQuestion(questionPool, newStore.noteProgress);
     setCurrentNote(note);
     setChoices(choices);
     setStreak(0);
-  }, [store, effectivePool, generateQuestion]);
+  }, [store, questionPool, generateQuestion]);
 
   // Determine answer button states
   const getButtonState = useCallback(
@@ -682,7 +767,7 @@ export default function DrillSession() {
     [chosen, currentNote],
   );
 
-  const masteredCount = effectivePool.filter((n) => store.noteProgress[n]?.mastered).length;
+  const masteredCount = questionPool.filter((n) => store.noteProgress[n]?.mastered).length;
   const accuracy = sessionTotal > 0 ? Math.round((sessionCorrect / sessionTotal) * 100) : null;
   return (
     <div
@@ -739,13 +824,13 @@ export default function DrillSession() {
                 label: (
                   <Space size={8} wrap>
                     <Text style={{ fontSize: 13 }}>
-                      {t('staffNotation.stageProgress', { done: masteredCount, total: effectivePool.length })}
+                      {t('staffNotation.stageProgress', { done: masteredCount, total: questionPool.length })}
                     </Text>
                     <Progress
-                      percent={Math.round((masteredCount / effectivePool.length) * 100)}
+                      percent={Math.round((masteredCount / questionPool.length) * 100)}
                       size="small"
                       style={{ width: 120 }}
-                      strokeColor={masteredCount === effectivePool.length ? '#059669' : '#7c3aed'}
+                      strokeColor={masteredCount === questionPool.length ? '#059669' : '#7c3aed'}
                     />
                     {accuracy !== null && (
                       <Tag icon={<TrophyOutlined />} color="gold">
@@ -780,6 +865,7 @@ export default function DrillSession() {
                           current={stage}
                           onSelect={startStage}
                           noteProgress={store.noteProgress}
+                          showInstrumentRange={drillMode !== 'note-name'}
                         />
                       </Space>
                       <Space size={4}>
@@ -849,7 +935,7 @@ export default function DrillSession() {
                       </Popconfirm>
                     </div>
                     <ProgressBoard
-                      pool={effectivePool}
+                      pool={questionPool}
                       noteProgress={store.noteProgress}
                       currentNote={chosen !== null ? currentNote : null}
                     />
@@ -951,6 +1037,7 @@ export default function DrillSession() {
               showNoteLabels={drillMode === 'piano'}
               fillWidth={isSingleOctave}
               maxHeight={200}
+              showRuler={false}
             />
           </>
         )}

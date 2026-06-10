@@ -142,6 +142,8 @@ const enUS = {
     trainingModePianoNoLabels: 'Piano Drill (No Labels)',
     trainingModeGuitar: 'Guitar Drill',
     trainingModeGuitarNoLabels: 'Guitar Drill (No Labels)',
+    stageInstrumentRange: 'Instrument Range',
+    stageInstrumentRangeDesc: 'Generate questions from the visible instrument range',
     showKeyLabels: 'Show Note Labels',
     drillHint: 'Progress through C4, C5, C4+C5, C2, C3, C2+C3, and grand staff C2~C5 reading drills',
     whatNote: 'Which note is this?',

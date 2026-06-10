@@ -137,6 +137,8 @@ const zhCN = {
     trainingModePianoNoLabels: '钢琴训练（无音名）',
     trainingModeGuitar: '吉他训练',
     trainingModeGuitarNoLabels: '吉他训练（无音名）',
+    stageInstrumentRange: '乐器选择范围',
+    stageInstrumentRangeDesc: '从当前乐器可视范围内随机出题',
     showKeyLabels: '显示音名',
     drillHint: '按 C4、C5、C4+C5、C2、C3、C2+C3、大谱表 C2~C5 逐步推进识谱训练',
     whatNote: '这是哪个音？',

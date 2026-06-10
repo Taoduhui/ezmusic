@@ -279,6 +279,8 @@ export interface PianoKeyboardProps {
   fillWidth?: boolean;
   /** Maximum keyboard height in px when fillWidth is active. No limit when unset. */
   maxHeight?: number;
+  /** Show the octave ruler (custom scrollbar). Default true. */
+  showRuler?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -323,6 +325,7 @@ export default function PianoKeyboard({
   showNoteLabels = true,
   fillWidth = false,
   maxHeight,
+  showRuler: showRulerProp = true,
 }: PianoKeyboardProps) {
   const keys = noteRange
     ? generatePianoKeys(noteRange.min, noteRange.max)
@@ -437,7 +440,7 @@ export default function PianoKeyboard({
   // Viewport indicator position and size
   const rulerViewportLeft = scrollContentW > 0 ? (scrollLeft / scrollContentW) * 100 : 0;
   const rulerViewportWidth = scrollContentW > 0 ? (scrollViewW / scrollContentW) * 100 : 100;
-  const showRuler = !fillWidth && scrollContentW > scrollViewW && scrollViewW > 0;
+  const showRuler = showRulerProp && !fillWidth && scrollContentW > scrollViewW && scrollViewW > 0;
 
   // Navigate keyboard to a position when user interacts with the ruler
   const handleRulerNavigate = useCallback(
