@@ -5,8 +5,7 @@ import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import Articles from './components/Articles';
 import PwaUpdatePrompt from './components/PwaUpdatePrompt';
-import { NoteSolfegeIntervalDrill } from '@ezmusic/chapter-note-solfege';
-import { DrillSession, StaffIntervalDrill } from '@ezmusic/chapter-staff-notation';
+import { DrillSession } from '@ezmusic/chapter-staff-notation';
 // Initialize i18n
 import '@ezmusic/shared';
 
@@ -31,19 +30,9 @@ export default function App() {
 
   const pages = [
     {
-      path: '/interval-speed-drill',
-      title: t('noteSolfege.intervalSpeedDrill'),
-      page: () => <NoteSolfegeIntervalDrill />,
-    },
-    {
       path: '/note-reading-drill',
       title: t('staffNotation.drillTitle'),
       page: () => <DrillSession />,
-    },
-    {
-      path: '/interval-drill',
-      title: t('staffNotation.intervalDrillTitle'),
-      page: () => <StaffIntervalDrill />,
     },
   ];
 
