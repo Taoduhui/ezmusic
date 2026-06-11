@@ -23,7 +23,7 @@ export default defineConfig(({ command }) => ({
       manifest: {
         name: '音乐训练',
         short_name: '音乐训练',
-        description: '音乐训练 · 识谱速训',
+        description: '音乐训练 · 音程速算、识谱速训、音程速训',
         theme_color: '#7c3aed',
         background_color: '#ffffff',
         display: 'standalone',
