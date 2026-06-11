@@ -34,7 +34,7 @@ const GUITAR_STRINGS: { name: string; baseNote: string }[] = [
 const FRET_COUNT = 24;
 
 /** Minimum number of frets shown */
-const MIN_VISIBLE_FRETS = 4;
+const MIN_VISIBLE_FRETS = 1;
 /** Fixed number of frets that fit on one screen */
 const FRETS_PER_SCREEN = 5;
 
