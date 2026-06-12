@@ -126,6 +126,13 @@ const AUTO_ADVANCE_DELAY_MS = 1200;
 const WRONG_ANSWER_AUTO_ADVANCE_DELAY_MS =
   ANSWER_FEEDBACK_DELAY_MS + NOTE_PLAY_DURATION * 1000 + 400;
 
+/** Shift a scientific note name by a number of octaves (e.g. C4 → C3 with delta=-1) */
+function shiftOctave(note: string, delta: number): string {
+  const match = /^([A-G][#b]?)(\d+)$/.exec(note);
+  if (!match) return note;
+  return `${match[1]}${parseInt(match[2], 10) + delta}`;
+}
+
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => {
     window.setTimeout(resolve, ms);
@@ -569,6 +576,22 @@ export default function DrillSession() {
     ];
     if (currentNote) {
       highlights.push({ note: currentNote, state: 'reveal' });
+    }
+    return highlights;
+  }, [chosen, currentNote]);
+
+  // Answer highlights for guitar mode — guitar sounds one octave lower than written,
+  // so the fretboard positions are shifted down by one octave relative to the staff.
+  const guitarHighlights = useMemo<KeyHighlight[]>(() => {
+    if (chosen === null) return [];
+    if (chosen === currentNote) {
+      return [{ note: shiftOctave(chosen, -1), state: 'correct' }];
+    }
+    const highlights: KeyHighlight[] = [
+      { note: shiftOctave(chosen, -1), state: 'wrong' },
+    ];
+    if (currentNote) {
+      highlights.push({ note: shiftOctave(currentNote, -1), state: 'reveal' });
     }
     return highlights;
   }, [chosen, currentNote]);
@@ -1198,8 +1221,8 @@ export default function DrillSession() {
         {/* Guitar fretboard (guitar modes) */}
         {(drillMode === 'guitar' || drillMode === 'guitar-no-labels') && (
           <GuitarFretboard
-            onKeyPress={(_pc, note) => handleAnswer(note)}
-            highlightKeys={keyboardHighlights}
+            onKeyPress={(_pc, note) => handleAnswer(shiftOctave(note, 1))}
+            highlightKeys={guitarHighlights}
             disabled={chosen !== null}
             showNoteLabels={drillMode === 'guitar'}
             fretStart={fretStart}
