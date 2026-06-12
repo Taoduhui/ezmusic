@@ -5,7 +5,6 @@ import {
   Button,
   Typography,
   Space,
-  Slider,
   Tag,
   Progress,
   theme,
@@ -13,7 +12,6 @@ import {
 import {
   AudioOutlined,
   AudioMutedOutlined,
-  AimOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 
@@ -28,6 +26,12 @@ interface TunableNote {
   freq: number;
 }
 
+interface PitchTracePoint {
+  id: number;
+  hzDiff: number | null;
+  status: 'active' | 'hold' | 'silent';
+}
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -37,6 +41,29 @@ const SEMITONE_RATIO = Math.pow(2, 1 / 12);
 const C0_FREQ = A4_FREQ * Math.pow(SEMITONE_RATIO, -57); // C0 ≈ 16.35 Hz
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+const DIFF_RANGE_HZ = 10;
+const TRACE_LIMIT = 72;
+const METER_WIDTH = 320;
+const METER_HEIGHT = 360;
+const METER_CENTER_X = METER_WIDTH / 2;
+const METER_HEAD_Y = 50;
+const METER_TARGET_Y = 150;
+const METER_TRACE_START_Y = 184;
+const METER_TRACE_STEP_Y = 3.6;
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function mapDiffToMeterX(hzDiff: number): number {
+  const clamped = clamp(hzDiff, -DIFF_RANGE_HZ, DIFF_RANGE_HZ);
+  return METER_CENTER_X + (clamped / DIFF_RANGE_HZ) * 92;
+}
+
+function formatSignedHz(hzDiff: number): string {
+  const rounded = parseFloat(hzDiff.toFixed(1));
+  return `${rounded > 0 ? '+' : ''}${rounded}`;
+}
 
 /** Generate tunable notes from C2 to C6 */
 function buildNoteOptions(): TunableNote[] {
@@ -159,6 +186,7 @@ export default function Tuner() {
   const [targetNote, setTargetNote] = useState<string>('A4');
   const [detectedFreq, setDetectedFreq] = useState<number | null>(null);
   const [hzDiff, setHzDiff] = useState<number | null>(null);
+  const [tracePoints, setTracePoints] = useState<PitchTracePoint[]>([]);
   const [volume, setVolume] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
@@ -180,6 +208,7 @@ export default function Tuner() {
   const lastGoodVolumeRef = useRef<number>(0);
   const signalLostAtRef = useRef<number>(0);
   const HOLD_MS = 800;
+  const traceIdRef = useRef(0);
 
   const targetFreq = useMemo(() => {
     const note = TUNABLE_NOTES.find((n) => n.label === targetNote);
@@ -208,6 +237,8 @@ export default function Tuner() {
       lastGoodDetectedRef.current = null;
       lastGoodHzDiffRef.current = null;
       signalLostAtRef.current = 0;
+      traceIdRef.current = 0;
+      setTracePoints([]);
     },
     [],
   );
@@ -226,31 +257,42 @@ export default function Tuner() {
     const held = lastGoodDetectedRef.current;
     const diffHeld = lastGoodHzDiffRef.current;
     const vol = lastGoodVolumeRef.current;
+    let nextDetected: number | null = null;
+    let nextHzDiff: number | null = null;
+    let nextTraceStatus: PitchTracePoint['status'] = 'silent';
 
     // Check hold: if signal has been lost for < HOLD_MS, keep showing last value
     if (held === null || diffHeld === null) {
       // Never had a reading — still show volume
-      setDetectedFreq(null);
-      setHzDiff(null);
-      setVolume(vol);
+      nextDetected = null;
+      nextHzDiff = null;
     } else if (signalLostAtRef.current === 0) {
       // Signal is alive: push latest
-      setDetectedFreq(held);
-      setHzDiff(diffHeld);
-      setVolume(vol);
+      nextDetected = held;
+      nextHzDiff = diffHeld;
+      nextTraceStatus = 'active';
     } else if (now - signalLostAtRef.current < HOLD_MS) {
       // Within hold window: keep showing last known value
-      setDetectedFreq(held);
-      setHzDiff(diffHeld);
-      setVolume(vol);
+      nextDetected = held;
+      nextHzDiff = diffHeld;
+      nextTraceStatus = 'hold';
     } else {
       // Hold expired
-      setDetectedFreq(null);
-      setHzDiff(null);
-      setVolume(vol);
       lastGoodDetectedRef.current = null;
       lastGoodHzDiffRef.current = null;
     }
+
+    setDetectedFreq(nextDetected);
+    setHzDiff(nextHzDiff);
+    setVolume(vol);
+    setTracePoints((prev) => {
+      const nextPoint: PitchTracePoint = {
+        id: traceIdRef.current++,
+        hzDiff: nextHzDiff,
+        status: nextTraceStatus,
+      };
+      return [...prev, nextPoint].slice(-TRACE_LIMIT);
+    });
 
     lastUiUpdateRef.current = now;
   }, []);
@@ -338,6 +380,7 @@ export default function Tuner() {
     setIsListening(false);
     setDetectedFreq(null);
     setHzDiff(null);
+    setTracePoints([]);
     setVolume(0);
     hzHistoryRef.current = [];
     lastGoodDetectedRef.current = null;
@@ -345,6 +388,7 @@ export default function Tuner() {
     lastGoodVolumeRef.current = 0;
     signalLostAtRef.current = 0;
     lastUiUpdateRef.current = 0;
+    traceIdRef.current = 0;
   }, []);
 
   useEffect(() => {
@@ -385,13 +429,53 @@ export default function Tuner() {
     return findClosestNote(detectedFreq);
   }, [detectedFreq]);
 
-  // Map Hz diff (-10..+10) to slider position (0..100)
-  const sliderValue = useMemo(() => {
-    if (hzDiff === null) return 50;
-    // Clamp to ±10 Hz, map to 0-100
-    const clamped = Math.max(-10, Math.min(10, hzDiff));
-    return ((clamped + 10) / 20) * 100;
+  const currentMeterX = useMemo(() => {
+    if (hzDiff === null) return METER_CENTER_X;
+    return mapDiffToMeterX(hzDiff);
   }, [hzDiff]);
+
+  const currentDiffLabel = useMemo(() => {
+    if (hzDiff === null) return null;
+    return formatSignedHz(hzDiff);
+  }, [hzDiff]);
+
+  const traceSegments = useMemo(() => {
+    const ordered = [...tracePoints].reverse();
+    const segments: string[] = [];
+    let currentSegment: string[] = [];
+
+    ordered.forEach((point, index) => {
+      if (point.hzDiff === null) {
+        if (currentSegment.length > 1) {
+          segments.push(currentSegment.join(' '));
+        }
+        currentSegment = [];
+        return;
+      }
+
+      const x = mapDiffToMeterX(point.hzDiff);
+      const y = METER_TRACE_START_Y + index * METER_TRACE_STEP_Y;
+      if (y > METER_HEIGHT - 18) {
+        return;
+      }
+
+      if (currentSegment.length === 0) {
+        currentSegment.push(`M ${x} ${y}`);
+      } else {
+        currentSegment.push(`L ${x} ${y}`);
+      }
+    });
+
+    if (currentSegment.length > 1) {
+      segments.push(currentSegment.join(' '));
+    }
+
+    return segments;
+  }, [tracePoints]);
+
+  const latestTracePoint = useMemo(() => {
+    return tracePoints[tracePoints.length - 1] ?? null;
+  }, [tracePoints]);
 
   return (
     <div style={{ maxWidth: 480, margin: '0 auto', padding: '24px 16px' }}>
@@ -430,91 +514,136 @@ export default function Tuner() {
       <Card size="small" style={{ marginBottom: 16 }}>
         <div
           style={{
-            position: 'relative',
-            height: 60,
-            borderRadius: 8,
+            borderRadius: 16,
             overflow: 'hidden',
-            background: `linear-gradient(
-              to right,
-              ${token.colorError} 0%,
-              ${token.colorWarning} 30%,
-              ${token.colorSuccess} 45%,
-              ${token.colorSuccess} 55%,
-              ${token.colorWarning} 70%,
-              ${token.colorError} 100%
-            )`,
+            background:
+              'radial-gradient(circle at top, rgba(27, 175, 116, 0.18), transparent 30%), linear-gradient(180deg, #20252b 0%, #171b20 100%)',
+            border: '1px solid rgba(255,255,255,0.06)',
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
           }}
         >
-          {/* Needle */}
-          <div
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: `${sliderValue}%`,
-              width: 3,
-              height: '100%',
-              background: token.colorText,
-              transform: 'translateX(-50%)',
-              transition: 'left 0.08s linear',
-              zIndex: 2,
-              borderRadius: 2,
-            }}
-          />
-          {/* Center mark */}
-          <div
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: '50%',
-              width: 2,
-              height: '100%',
-              background: 'rgba(255,255,255,0.4)',
-              transform: 'translateX(-50%)',
-            }}
-          />
-          {/* Labels */}
-          <Text
-            style={{
-              position: 'absolute',
-              left: 8,
-              top: '50%',
-              transform: 'translateY(-50%)',
-              color: '#fff',
-              fontSize: 11,
-              fontWeight: 600,
-            }}
+          <svg
+            viewBox={`0 0 ${METER_WIDTH} ${METER_HEIGHT}`}
+            style={{ display: 'block', width: '100%', height: 360 }}
+            role="img"
+            aria-label={t('tuner.title')}
           >
-            -10 Hz
+            <defs>
+              <pattern id="tuner-grid" width="18" height="18" patternUnits="userSpaceOnUse">
+                <path d="M 18 0 L 0 0 0 18" fill="none" stroke="rgba(255,255,255,0.045)" strokeWidth="1" />
+              </pattern>
+              <linearGradient id="tuner-trace" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#68f0a5" stopOpacity="0.95" />
+                <stop offset="100%" stopColor="#1daa78" stopOpacity="0.2" />
+              </linearGradient>
+            </defs>
+
+            <rect x="0" y="0" width={METER_WIDTH} height={METER_HEIGHT} fill="url(#tuner-grid)" />
+
+            <text x="20" y="34" fill="rgba(255,255,255,0.72)" fontSize="24" fontWeight="700">
+              ♭
+            </text>
+            <text x={METER_WIDTH - 30} y="34" fill="rgba(255,255,255,0.72)" fontSize="24" fontWeight="700">
+              ♯
+            </text>
+
+            <line
+              x1={METER_CENTER_X}
+              x2={METER_CENTER_X}
+              y1="12"
+              y2={METER_HEIGHT - 12}
+              stroke="rgba(40, 226, 143, 0.9)"
+              strokeWidth="2"
+            />
+
+            {traceSegments.map((segment, index) => (
+              <path
+                key={index}
+                d={segment}
+                fill="none"
+                stroke="url(#tuner-trace)"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            ))}
+
+            {hzDiff !== null && currentDiffLabel !== null && (
+              <>
+                <line
+                  x1={currentMeterX}
+                  x2={METER_CENTER_X}
+                  y1={METER_HEAD_Y + 22}
+                  y2={METER_TARGET_Y - 34}
+                  stroke="rgba(104, 240, 165, 0.95)"
+                  strokeWidth="2"
+                />
+                <circle
+                  cx={currentMeterX}
+                  cy={METER_HEAD_Y}
+                  r="23"
+                  fill="#26322d"
+                  stroke={statusColor}
+                  strokeWidth="3"
+                />
+                <text
+                  x={currentMeterX}
+                  y={METER_HEAD_Y + 7}
+                  textAnchor="middle"
+                  fill="#f5fffa"
+                  fontSize="20"
+                  fontWeight="700"
+                >
+                  {currentDiffLabel}
+                </text>
+              </>
+            )}
+
+            <circle
+              cx={METER_CENTER_X}
+              cy={METER_TARGET_Y}
+              r="31"
+              fill="#1f242a"
+              stroke="rgba(255,255,255,0.08)"
+              strokeWidth="3"
+            />
+            <text
+              x={METER_CENTER_X}
+              y={METER_TARGET_Y + 10}
+              textAnchor="middle"
+              fill="#31d992"
+              fontSize="28"
+              fontWeight="500"
+            >
+              {targetNote}
+            </text>
+
+            {latestTracePoint?.status === 'hold' && (
+              <text
+                x={METER_CENTER_X}
+                y={METER_HEIGHT - 14}
+                textAnchor="middle"
+                fill="rgba(255,255,255,0.52)"
+                fontSize="11"
+              >
+                HOLD
+              </text>
+            )}
+          </svg>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 12 }}>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            -{DIFF_RANGE_HZ} Hz
           </Text>
-          <Text
-            style={{
-              position: 'absolute',
-              left: '50%',
-              top: '50%',
-              transform: 'translate(-50%, -50%)',
-              color: '#fff',
-              fontSize: 11,
-              fontWeight: 600,
-            }}
-          >
+          <Text type="secondary" style={{ fontSize: 12 }}>
             0 Hz
           </Text>
-          <Text
-            style={{
-              position: 'absolute',
-              right: 8,
-              top: '50%',
-              transform: 'translateY(-50%)',
-              color: '#fff',
-              fontSize: 11,
-              fontWeight: 600,
-            }}
-          >
-            +10 Hz
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            +{DIFF_RANGE_HZ} Hz
           </Text>
         </div>
 
-        {/* Hz diff readout */}
         <div style={{ textAlign: 'center', marginTop: 12 }}>
           {hzDiff !== null ? (
             <Text
