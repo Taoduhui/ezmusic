@@ -197,6 +197,26 @@ const zhCN = {
     checking: '检查中…',
     upToDate: '已是最新',
   },
+  tuner: {
+    title: '调音器',
+    hint: '选择一个目标音高，对着麦克风发声，实时检测音准偏差',
+    targetNote: '目标音高',
+    targetFreq: '目标频率',
+    detectedFreq: '检测频率',
+    closestNote: '最接近音',
+    status: '状态',
+    inTune: '已校准 ✓',
+    close: '接近',
+    off: '偏离',
+    inputLevel: '输入电平',
+    listening: '正在聆听…',
+    notListening: '麦克风未开启',
+    start: '开始调音',
+    stop: '停止',
+    micDenied: '麦克风权限被拒绝，请在浏览器设置中允许麦克风访问。',
+    micNotFound: '未检测到麦克风设备。',
+    micError: '无法访问麦克风，请检查设备连接。',
+  },
 };
 
 export default zhCN;

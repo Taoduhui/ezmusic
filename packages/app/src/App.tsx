@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import Articles from './components/Articles';
 import PwaUpdatePrompt from './components/PwaUpdatePrompt';
+import Tuner from './components/Tuner';
 import { NoteSolfegeIntervalDrill } from '@ezmusic/chapter-note-solfege';
 import { DrillSession, StaffIntervalDrill } from '@ezmusic/chapter-staff-notation';
 // Initialize i18n
@@ -44,6 +45,11 @@ export default function App() {
       path: '/interval-drill',
       title: t('staffNotation.intervalDrillTitle'),
       page: () => <StaffIntervalDrill />,
+    },
+    {
+      path: '/tuner',
+      title: t('tuner.title'),
+      page: () => <Tuner />,
     },
   ];
 

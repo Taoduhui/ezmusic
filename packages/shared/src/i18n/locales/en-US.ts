@@ -202,6 +202,26 @@ const enUS = {
     checking: 'Checking…',
     upToDate: 'Up to date',
   },
+  tuner: {
+    title: 'Tuner',
+    hint: 'Select a target pitch, sing or play into the microphone for real-time tuning feedback',
+    targetNote: 'Target Note',
+    targetFreq: 'Target Frequency',
+    detectedFreq: 'Detected Frequency',
+    closestNote: 'Closest Note',
+    status: 'Status',
+    inTune: 'In Tune ✓',
+    close: 'Close',
+    off: 'Off',
+    inputLevel: 'Input Level',
+    listening: 'Listening…',
+    notListening: 'Microphone off',
+    start: 'Start Tuning',
+    stop: 'Stop',
+    micDenied: 'Microphone access denied. Please allow microphone access in your browser settings.',
+    micNotFound: 'No microphone detected.',
+    micError: 'Cannot access microphone. Please check your device connection.',
+  },
 };
 
 export default enUS;
