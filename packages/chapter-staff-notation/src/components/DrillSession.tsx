@@ -526,7 +526,8 @@ export default function DrillSession() {
     if (drillMode === 'piano' || drillMode === 'piano-no-labels') {
       rangeNotes = ALL_PIANO_NOTES.slice(clampedPianoStart, clampedPianoEnd + 1);
     } else {
-      rangeNotes = getGuitarRangeNotes(fretStart, fretEnd);
+      // Guitar is a transposing instrument: written pitch is one octave higher
+      rangeNotes = getGuitarRangeNotes(fretStart, fretEnd).map(n => shiftOctave(n, 1));
     }
     // Keep only natural notes — accidentals are controlled by selectedAccidentals
     rangeNotes = rangeNotes.filter((n) => {
@@ -715,7 +716,7 @@ export default function DrillSession() {
           if (drillMode === 'piano' || drillMode === 'piano-no-labels') {
             rangeNotes = ALL_PIANO_NOTES.slice(clampedPianoStart, clampedPianoEnd + 1);
           } else {
-            rangeNotes = getGuitarRangeNotes(fretStart, fretEnd);
+            rangeNotes = getGuitarRangeNotes(fretStart, fretEnd).map(n => shiftOctave(n, 1));
           }
           rangeNotes = rangeNotes.filter((n) => {
             const pc = n.replace(/\d+$/, '');
@@ -742,7 +743,7 @@ export default function DrillSession() {
       if (drillMode === 'piano' || drillMode === 'piano-no-labels') {
         rangeNotes = ALL_PIANO_NOTES.slice(clampedPianoStart, clampedPianoEnd + 1);
       } else {
-        rangeNotes = getGuitarRangeNotes(fretStart, fretEnd);
+        rangeNotes = getGuitarRangeNotes(fretStart, fretEnd).map(n => shiftOctave(n, 1));
       }
       rangeNotes = rangeNotes.filter((n) => {
         const pc = n.replace(/\d+$/, '');
@@ -767,7 +768,7 @@ export default function DrillSession() {
         if (drillMode === 'piano' || drillMode === 'piano-no-labels') {
           rangeNotes = ALL_PIANO_NOTES.slice(clampedPianoStart, clampedPianoEnd + 1);
         } else {
-          rangeNotes = getGuitarRangeNotes(fretStart, fretEnd);
+          rangeNotes = getGuitarRangeNotes(fretStart, fretEnd).map(n => shiftOctave(n, 1));
         }
         rangeNotes = rangeNotes.filter((n) => {
           const pc = n.replace(/\d+$/, '');
