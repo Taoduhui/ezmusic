@@ -19,6 +19,8 @@ import { useTranslation } from 'react-i18next';
 import {
   SOLFEGE_SYLLABLES,
   useAudio,
+  playTonicWalk,
+  buildTonicWalkSequence,
   triggerOpenDrawer,
   shuffleArray,
 } from '@ezmusic/shared';
@@ -50,12 +52,8 @@ const DEFAULT_TO = 'C5';
 const STORAGE_KEY = 'ezmusic-sight-singing-settings';
 
 const NOTE_PLAY_DURATION = 0.8;
-const ANSWER_FEEDBACK_DELAY_MS = NOTE_PLAY_DURATION * 1000 + 150;
-const AUTO_ADVANCE_DELAY_MS = 1200;
-/** Delay for wrong answer: playNote resolves immediately (Tone.js schedules playback),
- *  so the actual wait is gap(ANSWER_FEEDBACK_DELAY_MS) + correctNote(NOTE_PLAY_DURATION) + buffer */
-const WRONG_AUTO_ADVANCE_DELAY_MS =
-  ANSWER_FEEDBACK_DELAY_MS + NOTE_PLAY_DURATION * 1000 + 400;
+const WALK_NOTE_DURATION = 0.4;
+const WALK_GAP_MS = 75;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -132,40 +130,6 @@ function getSolfege(note: string): string {
   return base;
 }
 
-/** Map a solfège syllable back to the nearest note name relative to a reference note. */
-function solfegeToNoteName(solfege: string, referenceNote: string): string {
-  const baseSolfege = solfege.replace(/[♯♭#b].*$/, '');
-  const solfegeIdx = (SOLFEGE_SYLLABLES as readonly string[]).indexOf(baseSolfege);
-  if (solfegeIdx === -1) return referenceNote;
-
-  const pitchClasses = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
-  const pc = pitchClasses[solfegeIdx];
-  const refOctave = parseInt(/\d+$/.exec(referenceNote)![0], 10);
-
-  const candidates = [
-    `${pc}${refOctave}`,
-    `${pc}${refOctave + 1}`,
-    `${pc}${refOctave - 1}`,
-  ];
-
-  const refIdx = noteIndex(referenceNote);
-  let best = candidates[0];
-  let bestDist = Math.abs(noteIndex(best) - refIdx);
-  for (let i = 1; i < candidates.length; i++) {
-    const dist = Math.abs(noteIndex(candidates[i]) - refIdx);
-    if (dist < bestDist) {
-      bestDist = dist;
-      best = candidates[i];
-    }
-  }
-  return best;
-}
-
-function wait(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, ms);
-  });
-}
 function getSolfegeDistractors(correctSolfege: string): string[] {
   const baseSolfege = correctSolfege.replace(/[♯♭#b].*$/, '');
   const correctIdx = (SOLFEGE_SYLLABLES as readonly string[]).indexOf(baseSolfege);
@@ -372,23 +336,6 @@ export default function SightSinging() {
     void playNote(currentNote, NOTE_PLAY_DURATION);
   }, [currentNote, playNote]);
 
-  const playAnswerFeedback = useCallback(
-    (answer: string, expected: string) => {
-      void (async () => {
-        if (answer === expected) {
-          await playNote(currentNote!, NOTE_PLAY_DURATION);
-          return;
-        }
-
-        const wrongNote = solfegeToNoteName(answer, currentNote!);
-        await playNote(wrongNote, NOTE_PLAY_DURATION);
-        await wait(ANSWER_FEEDBACK_DELAY_MS);
-        await playNote(currentNote!, NOTE_PLAY_DURATION);
-      })();
-    },
-    [playNote, currentNote],
-  );
-
   const handleAnswer = useCallback(
     (answer: string) => {
       if (!currentNote || chosen !== null) return;
@@ -407,27 +354,41 @@ export default function SightSinging() {
       // Record review in spaced-repetition system
       sr.recordReview(currentNote, isCorrect);
 
-      // Play audio feedback (wrong→correct on error, correct-only on success)
-      playAnswerFeedback(answer, correctSolfege);
+      // Always play the tonic walk, regardless of correctness.
+      // The current (question) note plays at full duration; subsequent notes
+      // play faster so the walk feels brisk.
+      void playTonicWalk(playNote, currentNote, {
+        startNoteDuration: NOTE_PLAY_DURATION,
+        noteDuration: WALK_NOTE_DURATION,
+      });
 
       if (isCorrect) {
         setSessionCorrect((n) => n + 1);
         setStreak((n) => n + 1);
         message.success(t('sightSinging.correct'));
-        autoAdvanceRef.current = window.setTimeout(() => {
-          autoAdvanceRef.current = null;
-          nextQuestion();
-        }, AUTO_ADVANCE_DELAY_MS);
       } else {
         setStreak(0);
         message.error(`${t('sightSinging.wrong')} ${correctSolfege}`);
-        autoAdvanceRef.current = window.setTimeout(() => {
-          autoAdvanceRef.current = null;
-          nextQuestion();
-        }, WRONG_AUTO_ADVANCE_DELAY_MS);
       }
+
+      // Auto-advance: delay calculated from tonic-walk length so the
+      // sequence finishes sounding before the next question appears.
+      // First note uses NOTE_PLAY_DURATION; subsequent notes use WALK_NOTE_DURATION.
+      const seqLen = buildTonicWalkSequence(currentNote).length;
+      const playbackMs =
+        seqLen === 1
+          ? NOTE_PLAY_DURATION * 1000 + 400
+          : (NOTE_PLAY_DURATION * 1000 + WALK_GAP_MS) +
+            (seqLen - 2) * (WALK_NOTE_DURATION * 1000 + WALK_GAP_MS) +
+            WALK_NOTE_DURATION * 1000 +
+            400;
+
+      autoAdvanceRef.current = window.setTimeout(() => {
+        autoAdvanceRef.current = null;
+        nextQuestion();
+      }, playbackMs);
     },
-    [currentNote, chosen, playAnswerFeedback, t, nextQuestion, sr.recordReview],
+    [currentNote, chosen, playNote, t, nextQuestion, sr.recordReview],
   );
 
   const getButtonState = useCallback(
