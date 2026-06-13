@@ -22,6 +22,7 @@ import {
   triggerOpenDrawer,
   shuffleArray,
 } from '@ezmusic/shared';
+import { useSRDrill } from '@ezmusic/spaced-repetition';
 import { StaffDisplay } from '@ezmusic/chapter-staff-notation';
 
 const { Text } = Typography;
@@ -271,6 +272,9 @@ export default function SightSinging() {
   const isDesktop = !!screens.lg;
   const { playNote } = useAudio();
 
+  // ---- Spaced repetition ----
+  const sr = useSRDrill({ storageKey: 'ezmusic-sight-singing-sr' });
+
   // ---- Settings state ----
   const [settingsOpen, setSettingsOpen] = useState(false);
   const persisted = useMemo(() => loadSettings(), []);
@@ -294,7 +298,12 @@ export default function SightSinging() {
     [fromNote, toNote],
   );
 
-  /** Generate a new question */
+  // Ensure SR cards exist for all notes in the pool
+  useEffect(() => {
+    sr.ensureCards(notePool);
+  }, [notePool, sr.ensureCards]);
+
+  /** Generate a new question using SR-weighted selection */
   const nextQuestion = useCallback(() => {
     if (autoAdvanceRef.current !== null) {
       window.clearTimeout(autoAdvanceRef.current);
@@ -303,7 +312,9 @@ export default function SightSinging() {
 
     if (notePool.length === 0) return;
 
-    const note = notePool[Math.floor(Math.random() * notePool.length)];
+    // SR-weighted selection: prefer notes due/overdue for review
+    const selectedId = sr.pickNext(notePool, currentNote ?? undefined);
+    const note = selectedId ?? notePool[Math.floor(Math.random() * notePool.length)];
     const correctSolfege = getSolfege(note);
     const distractors = getSolfegeDistractors(correctSolfege);
     const options = shuffleArray([correctSolfege, ...distractors]);
@@ -313,7 +324,7 @@ export default function SightSinging() {
     setChosen(null);
 
     void playNote(note, NOTE_PLAY_DURATION);
-  }, [notePool, playNote]);
+  }, [notePool, playNote, sr, currentNote]);
 
   // Initialize first question
   useEffect(() => {
@@ -384,6 +395,9 @@ export default function SightSinging() {
       const correctSolfege = getSolfege(currentNote);
       const isCorrect = answer === correctSolfege;
 
+      // Record review in spaced-repetition system
+      sr.recordReview(currentNote, isCorrect);
+
       // Play audio feedback (wrong→correct on error, correct-only on success)
       playAnswerFeedback(answer, correctSolfege);
 
@@ -404,7 +418,7 @@ export default function SightSinging() {
         }, WRONG_AUTO_ADVANCE_DELAY_MS);
       }
     },
-    [currentNote, chosen, playAnswerFeedback, t, nextQuestion],
+    [currentNote, chosen, playAnswerFeedback, t, nextQuestion, sr.recordReview],
   );
 
   const getButtonState = useCallback(

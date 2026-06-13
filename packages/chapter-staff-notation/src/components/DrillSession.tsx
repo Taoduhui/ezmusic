@@ -36,7 +36,6 @@ import {
   type DrillStage,
   type NoteProgress,
   type AccidentalOption,
-  selectDrillNote,
   getDrillDistractors,
   shuffleArray,
   getClefForNote,
@@ -45,6 +44,7 @@ import {
   isAccidentalApplicable,
   expandPoolWithAccidentals,
 } from '@ezmusic/shared';
+import { useSRDrill } from '@ezmusic/spaced-repetition';
 import StaffDisplay from './StaffDisplay';
 import { PianoKeyboard, GuitarFretboard, type KeyHighlight } from '@ezmusic/shared';
 
@@ -392,6 +392,9 @@ export default function DrillSession() {
   const screens = useBreakpoint();
   const { playNote } = useAudio();
 
+  // ── Spaced repetition for staff note reading ─────────────────────────
+  const sr = useSRDrill({ storageKey: 'ezmusic-staff-drill-sr' });
+
   // Load persisted preferences
   const initialProgress = useMemo(() => loadProgress(), []);
 
@@ -543,6 +546,11 @@ export default function DrillSession() {
     [questionPool, selectedAccidentals],
   );
 
+  // Ensure SR cards exist for all note variants in the current display pool
+  useEffect(() => {
+    sr.ensureCards(displayPool);
+  }, [displayPool, sr.ensureCards]);
+
   const clef = useMemo(
     () => (currentNote ? getClefForNote(currentNote, stage) : 'treble'),
     [currentNote, stage],
@@ -610,7 +618,36 @@ export default function DrillSession() {
       // Defensive fallback in case all notes are filtered out
       const pool = filteredPool.length > 0 ? filteredPool : targetPool;
 
-      const baseNote = selectDrillNote(pool, progress, lastNote);
+      // ── Weighted note selection blending SR priority with mastery ─────
+      const selectNoteWeights = (p: readonly string[], prog: Record<string, NoteProgress>): number[] =>
+        p.map((note) => {
+          const np = prog[note];
+          if (np?.mastered) {
+            // Mastered notes: SR determines when to revisit
+            const card = sr.getCard(note);
+            if (card && card.nextReviewAt <= Date.now()) {
+              const overdueMin = (Date.now() - card.nextReviewAt) / 60000;
+              return 0.3 + Math.min(3, Math.log2(Math.max(1, overdueMin)) * 0.5);
+            }
+            return 0.15; // Mastered but not yet due
+          }
+          return Math.max(1, 3 - (np?.correctStreak ?? 0));
+        });
+
+      const weights = selectNoteWeights(pool, progress);
+      // Avoid repeating the same note
+      if (pool.length > 1 && lastNote) {
+        const idx = pool.indexOf(lastNote);
+        if (idx !== -1) weights[idx] = 0;
+      }
+      const totalWeight = weights.reduce((a, b) => a + b, 0);
+      let rand = Math.random() * totalWeight;
+      let baseNote = pool[pool.length - 1];
+      for (let i = 0; i < pool.length; i++) {
+        rand -= weights[i];
+        if (rand <= 0) { baseNote = pool[i]; break; }
+      }
+
       const accidentalType = pickRandomAccidental(baseNote, selectedAccidentals, pool);
 
       let note: string;
@@ -627,7 +664,7 @@ export default function DrillSession() {
       const choices = [...new Set([note, ...distractorCandidates])];
       return { note, choices: shuffleArray(choices) };
     },
-    [selectedAccidentals],
+    [selectedAccidentals, sr],
   );
 
   const replayCurrentNote = useCallback(() => {
@@ -801,6 +838,10 @@ export default function DrillSession() {
       setSessionTotal((n) => n + 1);
 
       const isCorrect = answer === currentNote;
+
+      // Record in spaced-repetition system for long-term scheduling
+      sr.recordReview(currentNote, isCorrect);
+
       playAnswerFeedback(answer, currentNote);
 
       setStore((prev) => {

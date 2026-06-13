@@ -15,6 +15,7 @@ import {
 import { ReloadOutlined, SoundOutlined, TrophyOutlined, MenuOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useAudio, triggerOpenDrawer } from '@ezmusic/shared';
+import { useSRDrill } from '@ezmusic/spaced-repetition';
 
 import StaffDisplay from './StaffDisplay';
 
@@ -140,8 +141,15 @@ function isNaturalMidi(midi: number): boolean {
   return NATURAL_PITCH_CLASSES.has(PITCH_CLASSES[midi % 12]);
 }
 
-function makeQuestion(range: [number, number], allowAccidentals: boolean): IntervalQuestion {
-  const semitones = randomInt(range[0], range[1]);
+/**
+ * Build an interval question on staff notation.
+ *
+ * @param range            [min, max] semitones to test
+ * @param allowAccidentals Whether to include accidental (black-key) notes
+ * @param forceSemitones   If provided, use this exact semitone count instead of random
+ */
+function makeQuestion(range: [number, number], allowAccidentals: boolean, forceSemitones?: number): IntervalQuestion {
+  const semitones = forceSemitones ?? randomInt(range[0], range[1]);
   const candidates = (Object.entries(CLEF_RANGES) as Array<[
     'treble' | 'bass',
     { min: number; max: number },
@@ -230,6 +238,32 @@ export default function IntervalDrill() {
   const screens = useBreakpoint();
   const { playNote } = useAudio();
   const initialStore = useMemo(loadStore, []);
+
+  // ── Spaced repetition for staff interval distances ────────────────────
+  const sr = useSRDrill({ storageKey: 'ezmusic-staff-interval-drill-sr' });
+
+  // Ensure SR cards exist for all possible intervals (1–12)
+  useEffect(() => {
+    const allIntervals = Array.from({ length: 12 }, (_, i) => `staff-interval-${i + 1}`);
+    sr.ensureCards(allIntervals);
+  }, [sr.ensureCards]);
+
+  /** Pick the next semitones value using SR-weighted selection. */
+  const pickSemitones = useCallback(
+    (range: [number, number], lastSemitones?: number): number => {
+      const pool = Array.from(
+        { length: range[1] - range[0] + 1 },
+        (_, i) => `staff-interval-${range[0] + i}`,
+      );
+      const selectedId = sr.pickNext(pool, lastSemitones ? `staff-interval-${lastSemitones}` : undefined);
+      if (selectedId) {
+        const semitones = parseInt(selectedId.replace('staff-interval-', ''), 10);
+        if (!Number.isNaN(semitones)) return semitones;
+      }
+      return randomInt(range[0], range[1]);
+    },
+    [sr],
+  );
 
   const [store, setStore] = useState<IntervalDrillStore>(initialStore);
   const [question, setQuestion] = useState<IntervalQuestion>(() => makeQuestion(initialStore.range, initialStore.allowAccidentals));
@@ -332,9 +366,10 @@ export default function IntervalDrill() {
     }
     rangeDebounceRef.current = window.setTimeout(() => {
       rangeDebounceRef.current = null;
-      setQuestion(makeQuestion(nextRange, store.allowAccidentals));
+      const nextSemitones = pickSemitones(nextRange);
+      setQuestion(makeQuestion(nextRange, store.allowAccidentals, nextSemitones));
     }, 300);
-  }, [store]);
+  }, [store, pickSemitones]);
 
   const handleAccidentalToggle = useCallback((checked: boolean) => {
     const nextStore: IntervalDrillStore = {
@@ -344,10 +379,11 @@ export default function IntervalDrill() {
     };
 
     setStore(nextStore);
-    setQuestion(makeQuestion(nextStore.range, nextStore.allowAccidentals));
+    const nextSemitones = pickSemitones(nextStore.range);
+    setQuestion(makeQuestion(nextStore.range, nextStore.allowAccidentals, nextSemitones));
     setSelected(null);
     setLastPromotion(null);
-  }, [store]);
+  }, [store, pickSemitones]);
 
   const handleAnswer = useCallback((value: number) => {
     if (selected !== null) return;
@@ -360,6 +396,10 @@ export default function IntervalDrill() {
 
     setSelected(value);
     const isCorrect = value === question.semitones;
+
+    // Record review in spaced-repetition system
+    sr.recordReview(`staff-interval-${question.semitones}`, isCorrect);
+
     const result = applyAnswerResult(store, isCorrect);
     setStore(result.nextStore);
     setLastPromotion(result.promotedRange);
@@ -368,7 +408,8 @@ export default function IntervalDrill() {
       message.success(t('staffNotation.correct'));
       autoAdvanceRef.current = window.setTimeout(() => {
         autoAdvanceRef.current = null;
-        setQuestion(makeQuestion(result.nextStore.range, result.nextStore.allowAccidentals));
+        const nextSemitones = pickSemitones(result.nextStore.range, question.semitones);
+        setQuestion(makeQuestion(result.nextStore.range, result.nextStore.allowAccidentals, nextSemitones));
         setSelected(null);
       }, AUTO_ADVANCE_DELAY_MS);
     } else {
@@ -381,17 +422,19 @@ export default function IntervalDrill() {
       window.clearTimeout(autoAdvanceRef.current);
       autoAdvanceRef.current = null;
     }
-    setQuestion(makeQuestion(store.range, store.allowAccidentals));
+    const nextSemitones = pickSemitones(store.range, question.semitones);
+    setQuestion(makeQuestion(store.range, store.allowAccidentals, nextSemitones));
     setSelected(null);
-  }, [store.allowAccidentals, store.range]);
+  }, [store.allowAccidentals, store.range, pickSemitones, question.semitones]);
 
   const handleReset = useCallback(() => {
     const nextStore = emptyStore();
     setStore(nextStore);
-    setQuestion(makeQuestion(nextStore.range, nextStore.allowAccidentals));
+    const nextSemitones = pickSemitones(nextStore.range);
+    setQuestion(makeQuestion(nextStore.range, nextStore.allowAccidentals, nextSemitones));
     setSelected(null);
     setLastPromotion(null);
-  }, []);
+  }, [pickSemitones]);
 
   return (
     <div

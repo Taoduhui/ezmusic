@@ -13,6 +13,7 @@
     "@ezmusic/chapter-note-solfege": "workspace:*",
     "@ezmusic/chapter-staff-notation": "workspace:*",
     "@ezmusic/shared": "workspace:*",
+    "@ezmusic/spaced-repetition": "workspace:*",
     "antd": "^5.17.4",
     "i18next": "^23.11.5",
     "react": "^18.3.1",
