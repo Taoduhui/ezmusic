@@ -9,7 +9,7 @@
  */
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
-  Button, Typography, Drawer, Select, Space, Grid, message, Card,
+  Button, Typography, Drawer, Select, Space, Grid, message, Card, Switch,
 } from 'antd';
 import {
   SettingOutlined, SoundOutlined, CheckOutlined, CloseOutlined,
@@ -157,6 +157,7 @@ const ALL_NOTE_OPTIONS = buildAllNoteOptions();
 interface SightSingingSettings {
   fromNote: string;
   toNote: string;
+  playSound: boolean;
 }
 
 function loadSettings(): SightSingingSettings {
@@ -167,10 +168,11 @@ function loadSettings(): SightSingingSettings {
       return {
         fromNote: parsed.fromNote ?? DEFAULT_FROM,
         toNote: parsed.toNote ?? DEFAULT_TO,
+        playSound: parsed.playSound ?? true,
       };
     }
   } catch { /* ignore corrupt data */ }
-  return { fromNote: DEFAULT_FROM, toNote: DEFAULT_TO };
+  return { fromNote: DEFAULT_FROM, toNote: DEFAULT_TO, playSound: true };
 }
 
 function saveSettings(settings: SightSingingSettings): void {
@@ -244,6 +246,7 @@ export default function SightSinging() {
   const persisted = useMemo(() => loadSettings(), []);
   const [fromNote, setFromNote] = useState(persisted.fromNote);
   const [toNote, setToNote] = useState(persisted.toNote);
+  const [playSound, setPlaySound] = useState(persisted.playSound);
 
   // ---- Question state ----
   const [currentNote, setCurrentNote] = useState<string | null>(null);
@@ -296,8 +299,10 @@ export default function SightSinging() {
     setChoices(options);
     setChosen(null);
 
-    void playNote(note, NOTE_PLAY_DURATION);
-  }, [notePool, playNote, sr, currentNote]);
+    if (playSound) {
+      void playNote(note, NOTE_PLAY_DURATION);
+    }
+  }, [notePool, playNote, sr, currentNote, playSound]);
 
   // Initialize first question
   useEffect(() => {
@@ -317,8 +322,8 @@ export default function SightSinging() {
 
   // Persist settings whenever they change
   useEffect(() => {
-    saveSettings({ fromNote, toNote });
-  }, [fromNote, toNote]);
+    saveSettings({ fromNote, toNote, playSound });
+  }, [fromNote, toNote, playSound]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -593,6 +598,17 @@ export default function SightSinging() {
             </Space>
             <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
               {t('sightSinging.noteRangeHint', { count: notePool.length })}
+            </Text>
+          </div>
+
+          {/* Play sound toggle */}
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 8 }}>
+              <Text strong>{t('sightSinging.playSound')}</Text>
+              <Switch checked={playSound} onChange={setPlaySound} />
+            </div>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {t('sightSinging.playSoundDesc')}
             </Text>
           </div>
         </Space>

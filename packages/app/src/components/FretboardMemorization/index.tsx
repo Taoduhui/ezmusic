@@ -9,7 +9,7 @@
  */
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
-  Button, Typography, Drawer, Select, Space, Grid, message, Card,
+  Button, Typography, Drawer, Select, Space, Grid, message, Card, Switch,
 } from 'antd';
 import {
   SettingOutlined, SoundOutlined, MenuOutlined,
@@ -20,6 +20,8 @@ import {
   useAudio,
   triggerOpenDrawer,
   SOLFEGE_SYLLABLES,
+  playTonicWalk,
+  buildTonicWalkSequence,
 } from '@ezmusic/shared';
 import { useSRDrill } from '@ezmusic/spaced-repetition';
 import { StaffDisplay } from '@ezmusic/chapter-staff-notation';
@@ -53,10 +55,8 @@ const DEFAULT_FRET_END = 5;
 const STORAGE_KEY = 'ezmusic-fretboard-memo-settings';
 
 const NOTE_PLAY_DURATION = 0.8;
-const ANSWER_FEEDBACK_DELAY_MS = NOTE_PLAY_DURATION * 1000 + 150;
-const AUTO_ADVANCE_DELAY_MS = 1200;
-const WRONG_AUTO_ADVANCE_DELAY_MS =
-  ANSWER_FEEDBACK_DELAY_MS + NOTE_PLAY_DURATION * 1000 + 400;
+const WALK_NOTE_DURATION = 0.4;
+const WALK_GAP_MS = 75;
 
 /** Hint mode for the fretboard labels. */
 type HintMode = 'none' | 'noteName' | 'solfege';
@@ -136,12 +136,6 @@ function shiftOctave(note: string, delta: number): string {
   return `${match[1]}${parseInt(match[2], 10) + delta}`;
 }
 
-function wait(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, ms);
-  });
-}
-
 /** Build fret options for the dropdown: 0品 … 24品. */
 function buildFretOptions(): { value: number; label: string }[] {
   const options: { value: number; label: string }[] = [];
@@ -164,6 +158,7 @@ interface FretboardMemoSettings {
   fretStart: number;
   fretEnd: number;
   hintMode: HintMode;
+  playSound: boolean;
 }
 
 function loadSettings(): FretboardMemoSettings {
@@ -175,6 +170,7 @@ function loadSettings(): FretboardMemoSettings {
         fretStart: parsed.fretStart ?? DEFAULT_FRET_START,
         fretEnd: parsed.fretEnd ?? DEFAULT_FRET_END,
         hintMode: parsed.hintMode ?? 'noteName',
+        playSound: parsed.playSound ?? true,
       };
     }
   } catch {
@@ -184,6 +180,7 @@ function loadSettings(): FretboardMemoSettings {
     fretStart: DEFAULT_FRET_START,
     fretEnd: DEFAULT_FRET_END,
     hintMode: 'noteName',
+    playSound: true,
   };
 }
 
@@ -214,6 +211,7 @@ export default function FretboardMemorization() {
   const [fretStart, setFretStart] = useState(persisted.fretStart);
   const [fretEnd, setFretEnd] = useState(persisted.fretEnd);
   const [hintMode, setHintMode] = useState<HintMode>(persisted.hintMode);
+  const [playSound, setPlaySound] = useState(persisted.playSound);
 
   // ---- Question state ----
   const [currentNote, setCurrentNote] = useState<string | null>(null);
@@ -264,8 +262,10 @@ export default function FretboardMemorization() {
     setIsCorrect(false);
     setTappedNote(null);
 
-    void playNote(note, NOTE_PLAY_DURATION);
-  }, [notePool, playNote, sr, currentNote]);
+    if (playSound) {
+      void playNote(note, NOTE_PLAY_DURATION);
+    }
+  }, [notePool, playNote, sr, currentNote, playSound]);
 
   // Initialize first question
   useEffect(() => {
@@ -285,8 +285,8 @@ export default function FretboardMemorization() {
 
   // Persist settings whenever they change
   useEffect(() => {
-    saveSettings({ fretStart, fretEnd, hintMode });
-  }, [fretStart, fretEnd, hintMode]);
+    saveSettings({ fretStart, fretEnd, hintMode, playSound });
+  }, [fretStart, fretEnd, hintMode, playSound]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -367,32 +367,42 @@ export default function FretboardMemorization() {
       // Record review in spaced-repetition system
       sr.recordReview(currentNote, correct);
 
+      // Always play the tonic walk, regardless of correctness.
+      // The current (question) note plays at full duration; subsequent notes
+      // play faster so the walk feels brisk.
+      void playTonicWalk(playNote, currentNote, {
+        startNoteDuration: NOTE_PLAY_DURATION,
+        noteDuration: WALK_NOTE_DURATION,
+      });
+
       if (correct) {
         setSessionCorrect((n) => n + 1);
         setStreak((n) => n + 1);
         message.success(t('fretboardMemo.correct'));
-        void playNote(currentNote, NOTE_PLAY_DURATION);
-        autoAdvanceRef.current = window.setTimeout(() => {
-          autoAdvanceRef.current = null;
-          nextQuestion();
-        }, AUTO_ADVANCE_DELAY_MS);
       } else {
         setStreak(0);
-        // Play wrong note then correct note
-        void (async () => {
-          await playNote(note, NOTE_PLAY_DURATION);
-          await wait(ANSWER_FEEDBACK_DELAY_MS);
-          await playNote(currentNote, NOTE_PLAY_DURATION);
-        })();
         const { pc, octave } = parseNote(currentNote);
         message.error(
           `${t('fretboardMemo.wrong')} ${pc}${octave}`,
         );
-        autoAdvanceRef.current = window.setTimeout(() => {
-          autoAdvanceRef.current = null;
-          nextQuestion();
-        }, WRONG_AUTO_ADVANCE_DELAY_MS);
       }
+
+      // Auto-advance: delay calculated from tonic-walk length so the
+      // sequence finishes sounding before the next question appears.
+      // First note uses NOTE_PLAY_DURATION; subsequent notes use WALK_NOTE_DURATION.
+      const seqLen = buildTonicWalkSequence(currentNote).length;
+      const playbackMs =
+        seqLen === 1
+          ? NOTE_PLAY_DURATION * 1000 + 400
+          : (NOTE_PLAY_DURATION * 1000 + WALK_GAP_MS) +
+            (seqLen - 2) * (WALK_NOTE_DURATION * 1000 + WALK_GAP_MS) +
+            WALK_NOTE_DURATION * 1000 +
+            400;
+
+      autoAdvanceRef.current = window.setTimeout(() => {
+        autoAdvanceRef.current = null;
+        nextQuestion();
+      }, playbackMs);
     },
     [currentNote, answered, playNote, sr.recordReview, t, nextQuestion],
   );
@@ -608,6 +618,17 @@ export default function FretboardMemorization() {
               }))}
               style={{ width: 160 }}
             />
+          </div>
+
+          {/* Play sound toggle */}
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 8 }}>
+              <Text strong>{t('fretboardMemo.playSound')}</Text>
+              <Switch checked={playSound} onChange={setPlaySound} />
+            </div>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {t('fretboardMemo.playSoundDesc')}
+            </Text>
           </div>
         </Space>
       </Drawer>

@@ -219,6 +219,8 @@ const enUS = {
     clickToReplay: 'Click staff to replay',
     accuracy: 'Accuracy',
     poolCount: '{{count}} notes',
+    playSound: 'Play Sound',
+    playSoundDesc: 'When off, the question note will not auto-play; answer feedback always plays',
   },
   fretboardMemo: {
     title: 'Fretboard Memory',
@@ -237,6 +239,8 @@ const enUS = {
     clickToReplay: 'Click staff to replay',
     accuracy: 'Accuracy',
     poolCount: '{{count}} notes',
+    playSound: 'Play Sound',
+    playSoundDesc: 'When off, the question note will not auto-play; answer feedback always plays',
   },
   tuner: {
     title: 'Tuner',

@@ -214,6 +214,8 @@ const zhCN = {
     clickToReplay: '点击乐谱重播',
     accuracy: '正确率',
     poolCount: '{{count}} 个音',
+    playSound: '播放声音',
+    playSoundDesc: '关闭后出题时不会自动播放题目音，选择答案后始终播放',
   },
   fretboardMemo: {
     title: '指板记忆',
@@ -232,6 +234,8 @@ const zhCN = {
     clickToReplay: '点击乐谱重播',
     accuracy: '正确率',
     poolCount: '{{count}} 个音',
+    playSound: '播放声音',
+    playSoundDesc: '关闭后出题时不会自动播放题目音，选择答案后始终播放',
   },
   tuner: {
     title: '调音器',
