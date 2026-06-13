@@ -54,6 +54,10 @@ const MIN_RMS_THRESHOLD = 0.02;
 const MIN_FREQ_HZ = 40;
 const MAX_FREQ_HZ = 2000;
 
+// ---- diagnostic logging (module-level throttle) ----
+let detectLogCounter = 0;
+const DETECT_LOG_EVERY_N = 30;
+
 // ---- Audio processing ----
 const BUFFER_SIZE = 4096;
 const FFT_SIZE = 8192;
@@ -115,70 +119,157 @@ function buildNoteOptions(): TunableNote[] {
 const TUNABLE_NOTES = buildNoteOptions();
 
 // ---------------------------------------------------------------------------
-// Pitch detection via autocorrelation
+// Pitch detection via YIN algorithm
+// ---------------------------------------------------------------------------
+// YIN (de Cheveigné & Kawahara, 2002) uses a squared difference function
+// with cumulative-mean normalisation to avoid subharmonic / octave errors.
+// It is more accurate than plain autocorrelation, especially for low
+// frequencies where fewer waveform periods fit into the analysis buffer.
 // ---------------------------------------------------------------------------
 
+/** Threshold for the cumulative-mean-normalised difference function.
+ *  Lower values → stricter detection (may miss quiet / noisy notes).
+ *  Typical range: 0.10 – 0.20. */
+const YIN_THRESHOLD = 0.15;
+
 /**
- * Detect fundamental frequency from a time-domain buffer using autocorrelation.
- * Returns the detected frequency in Hz, or null if no clear pitch is found.
+ * Detect fundamental frequency from a time-domain buffer using the YIN
+ * algorithm.  Returns frequency in Hz, or null if no clear pitch is found.
  */
 function detectPitch(buffer: Float32Array, sampleRate: number): number | null {
   const n = buffer.length;
 
-  // Compute RMS to check signal level
+  // ---- RMS gate -----------------------------------------------------------
   let sumSq = 0;
   for (let i = 0; i < n; i++) {
     sumSq += buffer[i] * buffer[i];
   }
   const rms = Math.sqrt(sumSq / n);
-  // Threshold: signal too quiet → no pitch
   if (rms < MIN_RMS_THRESHOLD) return null;
 
-  // Autocorrelation
+  // ---- lag bounds (same as before) ---------------------------------------
   const maxLag = Math.min(n - 1, Math.floor(sampleRate / MIN_FREQ_HZ));
   const minLag = Math.max(1, Math.floor(sampleRate / MAX_FREQ_HZ));
 
-  let bestLag = -1;
-  let bestCorr = -Infinity;
-
-  for (let lag = minLag; lag <= maxLag; lag++) {
-    let corr = 0;
-    for (let i = 0; i < n - lag; i++) {
-      corr += buffer[i] * buffer[i + lag];
+  // ---- Step 1: squared difference function d(τ) --------------------------
+  // d(τ) = Σ (x_j – x_{j+τ})²
+  const diff = new Float32Array(maxLag + 1);
+  for (let tau = 0; tau <= maxLag; tau++) {
+    let sum = 0;
+    for (let j = 0; j < n - tau; j++) {
+      const d = buffer[j] - buffer[j + tau];
+      sum += d * d;
     }
-    // Normalize by the number of terms so longer lags aren't penalized
-    corr /= n - lag;
+    diff[tau] = sum;
+  }
 
-    if (corr > bestCorr) {
-      bestCorr = corr;
-      bestLag = lag;
+  // ---- Step 2: cumulative-mean-normalised difference d'(τ) ---------------
+  // d'(0) = 1;  d'(τ) = d(τ) / ((1/τ) · Σ_{j=1}^{τ} d(j))
+  const cmnd = new Float32Array(maxLag + 1);
+  cmnd[0] = 1;
+  let cumSum = 0;
+  for (let tau = 1; tau <= maxLag; tau++) {
+    cumSum += diff[tau];
+    // Guard against division by zero (should never happen for real audio at τ>0)
+    cmnd[tau] = cumSum > 0 ? (diff[tau] * tau) / cumSum : 0;
+  }
+
+  // ---- Step 3: absolute threshold – first deep dip -----------------------
+  let tauEstimate = -1;
+
+  for (let tau = minLag; tau <= maxLag; tau++) {
+    if (cmnd[tau] < YIN_THRESHOLD) {
+      // Verify this is a local minimum in a small neighbourhood
+      // so we don't latch onto a transient downward slope.
+      const halfWindow = Math.max(1, Math.floor(tau * 0.04));
+      const lo = Math.max(minLag, tau - halfWindow);
+      const hi = Math.min(maxLag, tau + halfWindow);
+      let isLocalMin = true;
+      for (let k = lo; k <= hi; k++) {
+        if (cmnd[k] < cmnd[tau]) {
+          isLocalMin = false;
+          break;
+        }
+      }
+      if (isLocalMin) {
+        tauEstimate = tau;
+        break;
+      }
     }
   }
 
-  if (bestLag <= 0) return null;
-
-  // Parabolic interpolation around the peak for better accuracy
-  const lag = bestLag;
-  if (lag > 0 && lag < n - 1) {
-    const c0 = autocorrAt(buffer, lag);
-    const cm = autocorrAt(buffer, lag - 1);
-    const cp = autocorrAt(buffer, lag + 1);
-    const delta = 0.5 * (cm - cp) / (cm - 2 * c0 + cp);
-    if (Math.abs(delta) < 1) {
-      const refinedLag = lag - delta;
-      return sampleRate / refinedLag;
+  // Fallback: no τ dipped below threshold → use global minimum of cmnd
+  if (tauEstimate < 0) {
+    let bestVal = Infinity;
+    for (let tau = minLag; tau <= maxLag; tau++) {
+      if (cmnd[tau] < bestVal) {
+        bestVal = cmnd[tau];
+        tauEstimate = tau;
+      }
     }
   }
 
-  return sampleRate / bestLag;
-}
+  if (tauEstimate <= 0) return null;
 
-function autocorrAt(buffer: Float32Array, lag: number): number {
-  let sum = 0;
-  for (let i = 0; i < buffer.length - lag; i++) {
-    sum += buffer[i] * buffer[i + lag];
+  // ---- Step 4: parabolic interpolation around the minimum ----------------
+  if (tauEstimate > minLag && tauEstimate < maxLag) {
+    const y0 = cmnd[tauEstimate];
+    const ym = cmnd[tauEstimate - 1];
+    const yp = cmnd[tauEstimate + 1];
+    const denom = ym - 2 * y0 + yp;
+    if (denom > 0) {
+      // denom > 0 ensures the parabola opens upward (true minimum)
+      const delta = 0.5 * (ym - yp) / denom;
+      if (Math.abs(delta) < 1) {
+        const refinedLag = tauEstimate + delta;
+
+        // ---- diagnostic logging (throttled) ----
+        detectLogCounter++;
+        if (detectLogCounter % DETECT_LOG_EVERY_N === 0) {
+          console.log(
+            `%c🔍 YIN detectPitch #${detectLogCounter}`,
+            'color:#f5a623;font-weight:bold',
+          );
+          console.log('  sampleRate:', sampleRate);
+          console.log('  tauEstimate:', tauEstimate);
+          console.log('  cmnd at tau:', y0.toFixed(6));
+          console.log(
+            `  cmnd neighbours: tau-1=${ym.toFixed(6)}  tau+1=${yp.toFixed(6)}`,
+          );
+          console.log(
+            `  delta: ${delta.toFixed(4)}  (denom=${denom.toFixed(6)})`,
+          );
+          console.log('  refinedLag:', refinedLag.toFixed(4));
+          console.log(
+            '  freq (no interp):',
+            (sampleRate / tauEstimate).toFixed(4),
+            'Hz',
+          );
+          console.log(
+            '  freq (interpolated):',
+            (sampleRate / refinedLag).toFixed(4),
+            'Hz',
+          );
+        }
+
+        return sampleRate / refinedLag;
+      }
+    }
   }
-  return sum / (buffer.length - lag);
+
+  // ---- diagnostic logging (throttled, fallback path) ----
+  detectLogCounter++;
+  if (detectLogCounter % DETECT_LOG_EVERY_N === 0) {
+    console.log(
+      `%c🔍 YIN detectPitch #${detectLogCounter} (fallback, no interpolation)`,
+      'color:#f5a623;font-weight:bold',
+    );
+    console.log('  sampleRate:', sampleRate);
+    console.log('  tauEstimate:', tauEstimate);
+    console.log('  freq:', (sampleRate / tauEstimate).toFixed(4), 'Hz');
+  }
+
+  return sampleRate / tauEstimate;
 }
 
 // ---------------------------------------------------------------------------
@@ -245,6 +336,10 @@ export default function Tuner() {
   const lastGoodVolumeRef = useRef<number>(0);
   const signalLostAtRef = useRef<number>(0);
   const traceIdRef = useRef(0);
+
+  // ---- diagnostic logging ----
+  const logCounterRef = useRef(0);
+  const LOG_EVERY_N_FRAMES = 30; // log roughly every 0.5 s at 60 fps
 
   const targetFreq = useMemo(() => {
     const note = TUNABLE_NOTES.find((n) => n.label === targetNote);
@@ -351,14 +446,75 @@ export default function Tuner() {
 
     const detected = detectPitch(buffer, analyser.context.sampleRate);
     if (detected !== null && detected >= MIN_FREQ_HZ && detected <= MAX_FREQ_HZ) {
-      // Find the closest standard note and measure deviation from it,
-      // so the meter always shows how in-tune the *actual* played note is.
+      // Find the closest standard note for display, but measure
+      // deviation from the *target* note so the meter and status
+      // reflect how far the played pitch is from the intended note.
       const closestNote = findClosestNote(detected);
       lastGoodDetectedRef.current = parseFloat(detected.toFixed(4));
-      const rawDiff = detected - closestNote.freq;
+      const rawDiff = detected - targetFreqRef.current;
       lastGoodHzDiffRef.current = parseFloat(smoothHz(rawDiff).toFixed(4));
       lastGoodActiveNoteRef.current = closestNote.label;
       signalLostAtRef.current = 0;
+
+      // ---- diagnostic logging (throttled) ----
+      logCounterRef.current++;
+      if (logCounterRef.current % LOG_EVERY_N_FRAMES === 0) {
+        const curTargetFreq = targetFreqRef.current;
+        const diffFromTarget = detected - curTargetFreq;
+        const centsFromClosest = centsDiff(detected, closestNote.freq);
+        const centsFromTarget = centsDiff(detected, curTargetFreq);
+        console.group(
+          `%c🎵 Tuner Debug #${logCounterRef.current}`,
+          'color:#68f0a5;font-weight:bold',
+        );
+        console.log('sampleRate:', analyser.context.sampleRate, 'Hz');
+        console.log('buffer length:', buffer.length);
+        console.log('RMS:', rms.toFixed(4));
+        console.log(
+          '%cdetectedFreq: %c%s Hz',
+          '',
+          'color:#f5a623;font-weight:bold',
+          detected.toFixed(4),
+        );
+        console.log('closestNote:', closestNote.label, `(${closestNote.freq} Hz)`);
+        console.log('rawDiff (detected - closestNote):', rawDiff.toFixed(4), 'Hz');
+        console.log(
+          'smoothedDiff:',
+          lastGoodHzDiffRef.current?.toFixed(4),
+          'Hz',
+        );
+        console.log('targetNote:', targetNote, `(${curTargetFreq} Hz)`);
+        console.log('diffFromTarget:', diffFromTarget.toFixed(4), 'Hz');
+        console.log(
+          'centsFromClosest:',
+          centsFromClosest.toFixed(2),
+          'cents',
+        );
+        console.log(
+          'centsFromTarget:',
+          centsFromTarget.toFixed(2),
+          'cents',
+        );
+        console.log('meterX (target):', mapDiffToMeterX(rawDiff, diffRangeHz).toFixed(1));
+        // Also log what meterX would be if measured from target instead of closest
+        const diffRangeHzAlt = Math.max(
+          curTargetFreq - leftAdjFreq,
+          rightAdjFreq - curTargetFreq,
+        );
+        console.log(
+          'meterX (if diff-from-target):',
+          mapDiffToMeterX(diffFromTarget, diffRangeHzAlt).toFixed(1),
+        );
+        console.log('diffRangeHz:', diffRangeHz.toFixed(2));
+        console.log(
+          `leftAdj: ${leftAdjLabel}(${leftAdjFreq}Hz)  ` +
+            `target: ${targetNote}(${curTargetFreq}Hz)  ` +
+            `rightAdj: ${rightAdjLabel}(${rightAdjFreq}Hz)`,
+        );
+        console.log('smoothed history size:', hzHistoryRef.current.length);
+        console.log('volume:', volume.toFixed(3));
+        console.groupEnd();
+      }
     } else {
       // Mark when signal was lost (only on first silent frame)
       if (signalLostAtRef.current === 0) {
