@@ -33,8 +33,6 @@ const GUITAR_STRINGS: { name: string; baseNote: string }[] = [
 /** Maximum fret number */
 const FRET_COUNT = 24;
 
-/** Minimum number of frets shown */
-const MIN_VISIBLE_FRETS = 1;
 /** Fixed number of frets that fit on one screen */
 const FRETS_PER_SCREEN = 5;
 
@@ -123,6 +121,10 @@ export interface GuitarFretboardProps {
   fretEnd?: number;
   /** Called when the user drags the range slider handles */
   onFretRangeChange?: (start: number, end: number) => void;
+  /** Optional custom label for note positions (e.g. solfège). Falls back to scientific note name. */
+  getNoteLabel?: (note: string) => string;
+  /** Show the fret range slider above the fretboard (default true). */
+  showRangeSlider?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -137,6 +139,8 @@ export default function GuitarFretboard({
   fretStart = 0,
   fretEnd = 12,
   onFretRangeChange,
+  getNoteLabel,
+  showRangeSlider = true,
 }: GuitarFretboardProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -160,12 +164,9 @@ export default function GuitarFretboard({
     return () => ro.disconnect();
   }, []);
 
-  // Clamp drill range
-  const clampedStart = Math.max(0, Math.min(fretStart, FRET_COUNT - MIN_VISIBLE_FRETS));
-  const clampedEnd = Math.max(
-    clampedStart + MIN_VISIBLE_FRETS,
-    Math.min(fretEnd, FRET_COUNT),
-  );
+  // Clamp drill range — allow start == end (e.g. open-string only: 0–0)
+  const clampedStart = Math.max(0, Math.min(fretStart, FRET_COUNT));
+  const clampedEnd = Math.max(clampedStart, Math.min(fretEnd, FRET_COUNT));
 
   // Fixed fret width — exactly FRETS_PER_SCREEN fit the available width
   const availW = Math.max(containerWidth - LEFT_PAD - RIGHT_PAD, 200);
@@ -313,7 +314,8 @@ export default function GuitarFretboard({
 
   return (
     <div ref={containerRef}>
-      {/* Range slider — selects drill range */}
+      {/* Range slider — selects drill range (hidden when showRangeSlider=false) */}
+      {showRangeSlider && (
       <div ref={sliderWrapRef} style={{ position: 'relative' }}>
         <div style={{ padding: '0 40px 8px' }}>
           <Slider
@@ -392,6 +394,7 @@ export default function GuitarFretboard({
           </div>
         </div>
       </div>
+      )}
 
       {/* Fretboard SVG — horizontally scrollable */}
       <div ref={scrollRef} style={{ overflowX: 'auto' }}>
@@ -543,8 +546,8 @@ export default function GuitarFretboard({
                   strokeWidth={hlState ? 2 : 1.5}
                   style={{ transition: 'all 0.15s' }}
                 />
-                {/* Note label */}
-                {showNoteLabels && (
+                {/* Note label — custom renderer takes priority */}
+                {(getNoteLabel || showNoteLabels) && (
                   <text
                     x={pos.x}
                     y={pos.y + 1}
@@ -558,7 +561,7 @@ export default function GuitarFretboard({
                       pointerEvents: 'none',
                     }}
                   >
-                    {pos.note}
+                    {getNoteLabel ? getNoteLabel(pos.note) : pos.note}
                   </text>
                 )}
               </g>

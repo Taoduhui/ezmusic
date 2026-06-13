@@ -7,6 +7,7 @@ import Articles from './components/Articles';
 import PwaUpdatePrompt from './components/PwaUpdatePrompt';
 import Tuner from './components/Tuner';
 import SightSinging from './components/SightSinging';
+import FretboardMemorization from './components/FretboardMemorization';
 import { NoteSolfegeIntervalDrill } from '@ezmusic/chapter-note-solfege';
 import { DrillSession, StaffIntervalDrill } from '@ezmusic/chapter-staff-notation';
 // Initialize i18n
@@ -42,6 +43,12 @@ export default function App() {
       path: '/sight-singing',
       title: t('sightSinging.title'),
       page: () => <SightSinging />,
+      group: 'guitarRelated',
+    },
+    {
+      path: '/fretboard-memorization',
+      title: t('fretboardMemo.title'),
+      page: () => <FretboardMemorization />,
       group: 'guitarRelated',
     },
     {
