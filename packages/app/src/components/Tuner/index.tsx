@@ -8,14 +8,17 @@ import {
   Tag,
   Progress,
   theme,
+  Grid,
 } from 'antd';
 import {
   AudioOutlined,
   AudioMutedOutlined,
+  MenuOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
+import { triggerOpenDrawer } from '@ezmusic/shared';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -208,9 +211,13 @@ function findClosestNote(freq: number): TunableNote {
 // Component
 // ---------------------------------------------------------------------------
 
+const { useBreakpoint } = Grid;
+
 export default function Tuner() {
   const { t } = useTranslation();
   const { token } = theme.useToken();
+  const screens = useBreakpoint();
+  const isDesktop = !!screens.lg;
 
   const [isListening, setIsListening] = useState(false);
   const [targetNote, setTargetNote] = useState<string>('A4');
@@ -601,16 +608,43 @@ export default function Tuner() {
   }, [tracePoints]);
 
   return (
-    <div style={{ maxWidth: 480, margin: '0 auto', padding: '24px 16px' }}>
-      <Title level={3} style={{ textAlign: 'center', marginBottom: 8 }}>
-        {t('tuner.title')}
-      </Title>
-      <Text
-        type="secondary"
-        style={{ display: 'block', textAlign: 'center', marginBottom: 24 }}
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100vh',
+        overflow: 'hidden',
+      }}
+    >
+      <Card
+        title={
+          <Space>
+            {!isDesktop && (
+              <Button
+                type="text"
+                icon={<MenuOutlined />}
+                onClick={() => triggerOpenDrawer()}
+              />
+            )}
+            <span style={{ fontWeight: 600 }}>{t('tuner.title')}</span>
+          </Space>
+        }
+        style={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+          minHeight: 0,
+        }}
+        styles={{ body: { flex: 1, overflowY: 'auto', padding: '24px 16px' } }}
       >
-        {t('tuner.hint')}
-      </Text>
+        <div style={{ maxWidth: 480, margin: '0 auto' }}>
+          <Text
+            type="secondary"
+            style={{ display: 'block', textAlign: 'center', marginBottom: 24 }}
+          >
+            {t('tuner.hint')}
+          </Text>
 
       {/* Audio device selector */}
       <Card size="small" style={{ marginBottom: 16 }}>
@@ -878,7 +912,9 @@ export default function Tuner() {
             {error}
           </Text>
         )}
+        </div>
       </div>
-    </div>
+    </Card>
+  </div>
   );
 }
