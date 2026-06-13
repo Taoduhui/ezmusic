@@ -14,6 +14,7 @@ import DurationVisual from './components/DurationVisual';
 import DrillSession from './components/DrillSession';
 import IntervalDrill from './components/IntervalDrill';
 export { DrillSession, IntervalDrill as StaffIntervalDrill };
+export { default as StaffDisplay } from './components/StaffDisplay';
 
 const { Title, Paragraph } = Typography;
 const { useBreakpoint } = Grid;

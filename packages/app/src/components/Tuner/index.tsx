@@ -36,41 +36,71 @@ interface PitchTracePoint {
 // Constants
 // ---------------------------------------------------------------------------
 
+// ---- Note & pitch reference ----
 const A4_FREQ = 440;
 const SEMITONE_RATIO = Math.pow(2, 1 / 12);
 const C0_FREQ = A4_FREQ * Math.pow(SEMITONE_RATIO, -57); // C0 ≈ 16.35 Hz
-
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-const DIFF_RANGE_HZ = 10;
-const TRACE_LIMIT = 72;
+
+// ---- Tunable note range ----
+const NOTE_START_OCTAVE = 2;
+const NOTE_END_OCTAVE = 6;
+
+// ---- Pitch detection ----
+const MIN_RMS_THRESHOLD = 0.02;
+const MIN_FREQ_HZ = 40;
+const MAX_FREQ_HZ = 2000;
+
+// ---- Audio processing ----
+const BUFFER_SIZE = 4096;
+const FFT_SIZE = 8192;
+const SMOOTHING_TIME_CONSTANT = 0;
+const VOLUME_SCALE = 5;
+
+// ---- UI behaviour ----
+const TRACE_LIMIT = 900; // 15s × 60fps
+const HOLD_MS = 800;
+const SMOOTH_WINDOW = 64;
+const IN_TUNE_THRESHOLD_HZ = 1;
+const CLOSE_THRESHOLD_HZ = 4;
+const VOLUME_LOW_THRESHOLD = 0.1;
+const VOLUME_MID_THRESHOLD = 0.3;
+
+// ---- Adjacent note labels ----
+const ADJ_NATURAL_COUNT = 3;
+
+// ---- Meter layout ----
 const METER_WIDTH = 320;
 const METER_HEIGHT = 360;
 const METER_CENTER_X = METER_WIDTH / 2;
 const METER_HEAD_Y = 50;
 const METER_TARGET_Y = 150;
 const METER_TRACE_START_Y = 184;
-const METER_TRACE_STEP_Y = 3.6;
+const METER_BOTTOM_MARGIN = 18;
+const METER_X_RANGE = 92; // max horizontal deflection from center, in SVG units
+const METER_TRACE_HEIGHT = METER_HEIGHT - METER_BOTTOM_MARGIN - METER_TRACE_START_Y;
+const METER_TRACE_STEP_Y = METER_TRACE_HEIGHT / TRACE_LIMIT;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function mapDiffToMeterX(hzDiff: number): number {
-  const clamped = clamp(hzDiff, -DIFF_RANGE_HZ, DIFF_RANGE_HZ);
-  return METER_CENTER_X + (clamped / DIFF_RANGE_HZ) * 92;
+function mapDiffToMeterX(hzDiff: number, diffRangeHz: number): number {
+  const clamped = clamp(hzDiff, -diffRangeHz, diffRangeHz);
+  return METER_CENTER_X + (clamped / diffRangeHz) * METER_X_RANGE;
 }
 
 function formatSignedHz(hzDiff: number): string {
-  const rounded = parseFloat(hzDiff.toFixed(1));
+  const rounded = parseFloat(hzDiff.toFixed(4));
   return `${rounded > 0 ? '+' : ''}${rounded}`;
 }
 
 /** Generate tunable notes from C2 to C6 */
 function buildNoteOptions(): TunableNote[] {
   const notes: TunableNote[] = [];
-  for (let octave = 2; octave <= 6; octave++) {
+  for (let octave = NOTE_START_OCTAVE; octave <= NOTE_END_OCTAVE; octave++) {
     for (let i = 0; i < 12; i++) {
-      if (octave === 6 && i > 0) break; // stop at C6
+      if (octave === NOTE_END_OCTAVE && i > 0) break; // stop at C of end octave
       const semitonesFromC0 = octave * 12 + i;
       const freq = parseFloat((C0_FREQ * Math.pow(SEMITONE_RATIO, semitonesFromC0)).toFixed(2));
       notes.push({ label: `${NOTE_NAMES[i]}${octave}`, freq });
@@ -99,11 +129,11 @@ function detectPitch(buffer: Float32Array, sampleRate: number): number | null {
   }
   const rms = Math.sqrt(sumSq / n);
   // Threshold: signal too quiet → no pitch
-  if (rms < 0.01) return null;
+  if (rms < MIN_RMS_THRESHOLD) return null;
 
   // Autocorrelation
-  const maxLag = Math.min(n - 1, Math.floor(sampleRate / 40)); // ~40 Hz minimum
-  const minLag = Math.max(1, Math.floor(sampleRate / 2000)); // ~2000 Hz maximum
+  const maxLag = Math.min(n - 1, Math.floor(sampleRate / MIN_FREQ_HZ));
+  const minLag = Math.max(1, Math.floor(sampleRate / MAX_FREQ_HZ));
 
   let bestLag = -1;
   let bestCorr = -Infinity;
@@ -186,33 +216,32 @@ export default function Tuner() {
   const [targetNote, setTargetNote] = useState<string>('A4');
   const [detectedFreq, setDetectedFreq] = useState<number | null>(null);
   const [hzDiff, setHzDiff] = useState<number | null>(null);
+  const [activeNote, setActiveNote] = useState<string | null>(null);
   const [tracePoints, setTracePoints] = useState<PitchTracePoint[]>([]);
   const [volume, setVolume] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [audioInputDevices, setAudioInputDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string | undefined>(undefined);
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const animFrameRef = useRef<number>(0);
   const bufferRef = useRef<Float32Array<ArrayBuffer>>(
-    new Float32Array(new ArrayBuffer(4096 * Float32Array.BYTES_PER_ELEMENT)),
+    new Float32Array(new ArrayBuffer(BUFFER_SIZE * Float32Array.BYTES_PER_ELEMENT)),
   );
-
-  // ---- throttle: push React state at ~12 fps instead of 60 fps ----
-  const lastUiUpdateRef = useRef<number>(0);
-  const UI_INTERVAL_MS = 80; // ~12.5 fps
 
   // ---- hold: keep last reading alive for a grace period when signal drops ----
   const lastGoodDetectedRef = useRef<number | null>(null);
   const lastGoodHzDiffRef = useRef<number | null>(null);
+  const lastGoodActiveNoteRef = useRef<string | null>(null);
   const lastGoodVolumeRef = useRef<number>(0);
   const signalLostAtRef = useRef<number>(0);
-  const HOLD_MS = 800;
   const traceIdRef = useRef(0);
 
   const targetFreq = useMemo(() => {
     const note = TUNABLE_NOTES.find((n) => n.label === targetNote);
-    return note?.freq ?? 440;
+    return note?.freq ?? A4_FREQ;
   }, [targetNote]);
 
   // Keep targetFreq in a ref so processAudio always reads the latest value,
@@ -222,7 +251,6 @@ export default function Tuner() {
 
   // Smooth the Hz diff value to reduce jitter
   const hzHistoryRef = useRef<number[]>([]);
-  const SMOOTH_WINDOW = 8;
 
   const handleTargetChange = useCallback(
     (val: string) => {
@@ -252,13 +280,14 @@ export default function Tuner() {
 
   const flushUiState = useCallback(() => {
     const now = performance.now();
-    if (now - lastUiUpdateRef.current < UI_INTERVAL_MS) return;
 
     const held = lastGoodDetectedRef.current;
     const diffHeld = lastGoodHzDiffRef.current;
+    const activeNoteHeld = lastGoodActiveNoteRef.current;
     const vol = lastGoodVolumeRef.current;
     let nextDetected: number | null = null;
     let nextHzDiff: number | null = null;
+    let nextActiveNote: string | null = null;
     let nextTraceStatus: PitchTracePoint['status'] = 'silent';
 
     // Check hold: if signal has been lost for < HOLD_MS, keep showing last value
@@ -270,11 +299,13 @@ export default function Tuner() {
       // Signal is alive: push latest
       nextDetected = held;
       nextHzDiff = diffHeld;
+      nextActiveNote = activeNoteHeld;
       nextTraceStatus = 'active';
     } else if (now - signalLostAtRef.current < HOLD_MS) {
       // Within hold window: keep showing last known value
       nextDetected = held;
       nextHzDiff = diffHeld;
+      nextActiveNote = activeNoteHeld;
       nextTraceStatus = 'hold';
     } else {
       // Hold expired
@@ -284,6 +315,7 @@ export default function Tuner() {
 
     setDetectedFreq(nextDetected);
     setHzDiff(nextHzDiff);
+    setActiveNote(nextActiveNote);
     setVolume(vol);
     setTracePoints((prev) => {
       const nextPoint: PitchTracePoint = {
@@ -293,8 +325,6 @@ export default function Tuner() {
       };
       return [...prev, nextPoint].slice(-TRACE_LIMIT);
     });
-
-    lastUiUpdateRef.current = now;
   }, []);
 
   const processAudio = useCallback(() => {
@@ -310,15 +340,17 @@ export default function Tuner() {
       sumSq += buffer[i] * buffer[i];
     }
     const rms = Math.sqrt(sumSq / buffer.length);
-    lastGoodVolumeRef.current = Math.min(1, rms * 5);
+    lastGoodVolumeRef.current = Math.min(1, rms * VOLUME_SCALE);
 
     const detected = detectPitch(buffer, analyser.context.sampleRate);
-    if (detected !== null && detected >= 40 && detected <= 2000) {
-      // Use ref to always read the latest target frequency, avoiding stale-closure bugs
-      const curTarget = targetFreqRef.current;
-      lastGoodDetectedRef.current = parseFloat(detected.toFixed(1));
-      const rawDiff = detected - curTarget;
-      lastGoodHzDiffRef.current = parseFloat(smoothHz(rawDiff).toFixed(1));
+    if (detected !== null && detected >= MIN_FREQ_HZ && detected <= MAX_FREQ_HZ) {
+      // Find the closest standard note and measure deviation from it,
+      // so the meter always shows how in-tune the *actual* played note is.
+      const closestNote = findClosestNote(detected);
+      lastGoodDetectedRef.current = parseFloat(detected.toFixed(4));
+      const rawDiff = detected - closestNote.freq;
+      lastGoodHzDiffRef.current = parseFloat(smoothHz(rawDiff).toFixed(4));
+      lastGoodActiveNoteRef.current = closestNote.label;
       signalLostAtRef.current = 0;
     } else {
       // Mark when signal was lost (only on first silent frame)
@@ -332,16 +364,47 @@ export default function Tuner() {
     animFrameRef.current = requestAnimationFrame(processAudio);
   }, [smoothHz, flushUiState]);
 
+  // ---- Audio device enumeration ----
+
+  const enumerateDevices = useCallback(async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const inputs = devices.filter((d) => d.kind === 'audioinput');
+      setAudioInputDevices(inputs);
+      // If the currently selected device is no longer available, fall back to default
+      if (inputs.length > 0 && selectedDeviceId && !inputs.find((d) => d.deviceId === selectedDeviceId)) {
+        setSelectedDeviceId(undefined);
+      }
+    } catch {
+      // Silently ignore — enumerateDevices may fail if permissions aren't granted yet
+    }
+  }, [selectedDeviceId]);
+
+  // Populate device list on mount and listen for device changes
+  useEffect(() => {
+    enumerateDevices();
+    navigator.mediaDevices?.addEventListener('devicechange', enumerateDevices);
+    return () => {
+      navigator.mediaDevices?.removeEventListener('devicechange', enumerateDevices);
+    };
+  }, [enumerateDevices]);
+
+  const handleDeviceChange = useCallback((deviceId: string) => {
+    setSelectedDeviceId(deviceId || undefined);
+  }, []);
+
   const startListening = useCallback(async () => {
     setError(null);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
+      const constraints: MediaStreamConstraints = {
         audio: {
           echoCancellation: false,
           noiseSuppression: false,
           autoGainControl: false,
+          ...(selectedDeviceId ? { deviceId: { exact: selectedDeviceId } } : {}),
         },
-      });
+      };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
 
       const audioCtx = new AudioContext();
@@ -349,8 +412,8 @@ export default function Tuner() {
 
       const source = audioCtx.createMediaStreamSource(stream);
       const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 8192;
-      analyser.smoothingTimeConstant = 0;
+      analyser.fftSize = FFT_SIZE;
+      analyser.smoothingTimeConstant = SMOOTHING_TIME_CONSTANT;
       source.connect(analyser);
       // Don't connect to destination — we don't want feedback
       analyserRef.current = analyser;
@@ -368,7 +431,7 @@ export default function Tuner() {
           : t('tuner.micError');
       setError(message);
     }
-  }, [processAudio, t]);
+  }, [processAudio, t, selectedDeviceId]);
 
   const stopListening = useCallback(() => {
     cancelAnimationFrame(animFrameRef.current);
@@ -380,14 +443,15 @@ export default function Tuner() {
     setIsListening(false);
     setDetectedFreq(null);
     setHzDiff(null);
+    setActiveNote(null);
     setTracePoints([]);
     setVolume(0);
     hzHistoryRef.current = [];
     lastGoodDetectedRef.current = null;
     lastGoodHzDiffRef.current = null;
+    lastGoodActiveNoteRef.current = null;
     lastGoodVolumeRef.current = 0;
     signalLostAtRef.current = 0;
-    lastUiUpdateRef.current = 0;
     traceIdRef.current = 0;
   }, []);
 
@@ -398,6 +462,7 @@ export default function Tuner() {
       audioCtxRef.current?.close();
       lastGoodDetectedRef.current = null;
       lastGoodHzDiffRef.current = null;
+      lastGoodActiveNoteRef.current = null;
       signalLostAtRef.current = 0;
     };
   }, []);
@@ -406,8 +471,8 @@ export default function Tuner() {
 
   const tunerStatus = useMemo(() => {
     if (hzDiff === null) return 'idle';
-    if (Math.abs(hzDiff) < 1) return 'inTune';
-    if (Math.abs(hzDiff) < 4) return 'close';
+    if (Math.abs(hzDiff) < IN_TUNE_THRESHOLD_HZ) return 'inTune';
+    if (Math.abs(hzDiff) < CLOSE_THRESHOLD_HZ) return 'close';
     return 'off';
   }, [hzDiff]);
 
@@ -424,15 +489,73 @@ export default function Tuner() {
     }
   }, [tunerStatus, token]);
 
-  const closestNote = useMemo(() => {
-    if (detectedFreq === null) return null;
-    return findClosestNote(detectedFreq);
-  }, [detectedFreq]);
+  // The frequency of the auto-detected note (or target as fallback).
+  // This is the reference point for the meter — deviation is measured
+  // against the closest standard note to the played pitch.
+  const activeNoteFreq = useMemo(() => {
+    if (activeNote) {
+      const note = TUNABLE_NOTES.find((n) => n.label === activeNote);
+      if (note) return note.freq;
+    }
+    return targetFreq;
+  }, [activeNote, targetFreq]);
+
+  // Find adjacent natural notes on either side of the target note
+  // (distance controlled by ADJ_NATURAL_COUNT).
+  const { leftAdjLabel, rightAdjLabel, leftAdjFreq, rightAdjFreq } = useMemo(() => {
+    const match = targetNote.match(/^([A-G]#?)(\d+)$/);
+    if (!match) return { leftAdjLabel: '', rightAdjLabel: '', leftAdjFreq: 0, rightAdjFreq: 0 };
+    const [, name, octStr] = match;
+    const oct = Number(octStr);
+    const idx = NOTE_NAMES.indexOf(name);
+    if (idx < 0) return { leftAdjLabel: '', rightAdjLabel: '', leftAdjFreq: 0, rightAdjFreq: 0 };
+
+    // Natural note indices in NOTE_NAMES: C=0, D=2, E=4, F=5, G=7, A=9, B=11
+    const NATURAL_INDICES = new Set([0, 2, 4, 5, 7, 9, 11]);
+
+    // Find lower adjacent natural (skip ADJ_NATURAL_COUNT naturals)
+    let lowerOct = oct;
+    let lowerIdx = idx;
+    let naturalsFound = 0;
+    while (naturalsFound < ADJ_NATURAL_COUNT) {
+      lowerIdx--;
+      if (lowerIdx < 0) { lowerIdx = 11; lowerOct--; }
+      if (NATURAL_INDICES.has(lowerIdx)) naturalsFound++;
+    }
+    const leftLabel = `${NOTE_NAMES[lowerIdx]}${lowerOct}`;
+    const leftSemitones = lowerOct * 12 + lowerIdx;
+    const leftFreq = parseFloat((C0_FREQ * Math.pow(SEMITONE_RATIO, leftSemitones)).toFixed(2));
+
+    // Find higher adjacent natural (skip ADJ_NATURAL_COUNT naturals)
+    let higherOct = oct;
+    let higherIdx = idx;
+    naturalsFound = 0;
+    while (naturalsFound < ADJ_NATURAL_COUNT) {
+      higherIdx++;
+      if (higherIdx > 11) { higherIdx = 0; higherOct++; }
+      if (NATURAL_INDICES.has(higherIdx)) naturalsFound++;
+    }
+    const rightLabel = `${NOTE_NAMES[higherIdx]}${higherOct}`;
+    const rightSemitones = higherOct * 12 + higherIdx;
+    const rightFreq = parseFloat((C0_FREQ * Math.pow(SEMITONE_RATIO, rightSemitones)).toFixed(2));
+
+    return {
+      leftAdjLabel: leftLabel,
+      rightAdjLabel: rightLabel,
+      leftAdjFreq: leftFreq,
+      rightAdjFreq: rightFreq,
+    };
+  }, [targetNote]);
+
+  const diffRangeHz = useMemo(
+    () => Math.max(targetFreq - leftAdjFreq, rightAdjFreq - targetFreq),
+    [targetFreq, leftAdjFreq, rightAdjFreq],
+  );
 
   const currentMeterX = useMemo(() => {
     if (hzDiff === null) return METER_CENTER_X;
-    return mapDiffToMeterX(hzDiff);
-  }, [hzDiff]);
+    return mapDiffToMeterX(hzDiff, diffRangeHz);
+  }, [hzDiff, diffRangeHz]);
 
   const currentDiffLabel = useMemo(() => {
     if (hzDiff === null) return null;
@@ -453,9 +576,9 @@ export default function Tuner() {
         return;
       }
 
-      const x = mapDiffToMeterX(point.hzDiff);
+      const x = mapDiffToMeterX(point.hzDiff, diffRangeHz);
       const y = METER_TRACE_START_Y + index * METER_TRACE_STEP_Y;
-      if (y > METER_HEIGHT - 18) {
+      if (y > METER_HEIGHT - METER_BOTTOM_MARGIN) {
         return;
       }
 
@@ -471,7 +594,7 @@ export default function Tuner() {
     }
 
     return segments;
-  }, [tracePoints]);
+  }, [tracePoints, diffRangeHz]);
 
   const latestTracePoint = useMemo(() => {
     return tracePoints[tracePoints.length - 1] ?? null;
@@ -488,6 +611,27 @@ export default function Tuner() {
       >
         {t('tuner.hint')}
       </Text>
+
+      {/* Audio device selector */}
+      <Card size="small" style={{ marginBottom: 16 }}>
+        <Space direction="vertical" style={{ width: '100%' }}>
+          <Text strong>{t('tuner.audioDevice')}</Text>
+          <Select
+            value={selectedDeviceId ?? ''}
+            onChange={handleDeviceChange}
+            style={{ width: '100%' }}
+            disabled={isListening}
+            options={[
+              { value: '', label: t('tuner.defaultDevice') },
+              ...audioInputDevices.map((d) => ({
+                value: d.deviceId,
+                label: d.label || `${t('tuner.audioDevice')} (${d.deviceId.slice(0, 8)}…)`,
+              })),
+            ]}
+            placeholder={audioInputDevices.length === 0 ? t('tuner.noDevice') : undefined}
+          />
+        </Space>
+      </Card>
 
       {/* Target note selector */}
       <Card size="small" style={{ marginBottom: 16 }}>
@@ -615,7 +759,7 @@ export default function Tuner() {
               fontSize="28"
               fontWeight="500"
             >
-              {targetNote}
+              {activeNote ?? targetNote}
             </text>
 
             {latestTracePoint?.status === 'hold' && (
@@ -634,13 +778,13 @@ export default function Tuner() {
 
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 12 }}>
           <Text type="secondary" style={{ fontSize: 12 }}>
-            -{DIFF_RANGE_HZ} Hz
+            {leftAdjLabel}
           </Text>
           <Text type="secondary" style={{ fontSize: 12 }}>
-            0 Hz
+            {targetNote}
           </Text>
           <Text type="secondary" style={{ fontSize: 12 }}>
-            +{DIFF_RANGE_HZ} Hz
+            {rightAdjLabel}
           </Text>
         </div>
 
@@ -681,7 +825,7 @@ export default function Tuner() {
           >
             <Text type="secondary">{t('tuner.closestNote')}</Text>
             <Text strong>
-              {closestNote ? `${closestNote.label} (${closestNote.freq} Hz)` : '—'}
+              {activeNote ? `${activeNote} (${activeNoteFreq} Hz)` : '—'}
             </Text>
           </div>
           <div
@@ -707,9 +851,9 @@ export default function Tuner() {
               size="small"
               showInfo={false}
               strokeColor={
-                volume < 0.05
+                volume < VOLUME_LOW_THRESHOLD
                   ? token.colorError
-                  : volume < 0.15
+                  : volume < VOLUME_MID_THRESHOLD
                     ? token.colorWarning
                     : token.colorSuccess
               }

@@ -29,6 +29,8 @@ export interface PageConfig {
   path: string;
   title: string;
   page: () => ReactNode;
+  /** i18n key for the parent group label. Pages sharing the same group are nested under a SubMenu. */
+  group?: string;
 }
 
 export interface ArticlesProps {
@@ -47,6 +49,7 @@ export default function Articles({ pages, defaultCurrent = 0 }: ArticlesProps) {
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [checking, setChecking] = useState(false);
+  const [openKeys, setOpenKeys] = useState<string[]>([]);
   const [locale, setLocale] = useState<SupportedLocale>(
     (i18n.resolvedLanguage as SupportedLocale) ?? 'zh-CN',
   );
@@ -122,11 +125,33 @@ export default function Articles({ pages, defaultCurrent = 0 }: ArticlesProps) {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [pages, routerNavigate]);
 
+  // Auto-open the parent SubMenu when the current page belongs to a group
+  useEffect(() => {
+    const page = pages[resolvedCurrentIdx];
+    if (page?.group) {
+      const groupKey = `group-${page.group}`;
+      setOpenKeys((prev) => (prev.includes(groupKey) ? prev : [...prev, groupKey]));
+    }
+  }, [resolvedCurrentIdx, pages]);
+
   const currentPage = pages[resolvedCurrentIdx];
 
-  const menuItems = pages.map((p, idx) => ({
-    key: p.path,
-    label: (
+  // Build nested menu items: ungrouped items at top, grouped items inside SubMenus
+  const menuItems = useMemo(() => {
+    const groupMap = new Map<string, { idx: number; page: PageConfig }[]>();
+    const ungrouped: { idx: number; page: PageConfig }[] = [];
+
+    pages.forEach((p, idx) => {
+      if (p.group) {
+        const list = groupMap.get(p.group) ?? [];
+        list.push({ idx, page: p });
+        if (!groupMap.has(p.group)) groupMap.set(p.group, list);
+      } else {
+        ungrouped.push({ idx, page: p });
+      }
+    });
+
+    const makeLabel = (title: string, idx: number) => (
       <Text
         style={{
           color: idx === resolvedCurrentIdx ? '#7c3aed' : undefined,
@@ -137,10 +162,31 @@ export default function Articles({ pages, defaultCurrent = 0 }: ArticlesProps) {
           wordBreak: 'break-all',
         }}
       >
-        {p.title}
+        {title}
       </Text>
-    ),
-  }));
+    );
+
+    const items: any[] = [];
+
+    // Ungrouped items first
+    for (const { idx, page } of ungrouped) {
+      items.push({ key: page.path, label: makeLabel(page.title, idx) });
+    }
+
+    // Grouped items as SubMenus (preserve insertion order via forEach on the Map)
+    for (const [groupLabel, children] of groupMap) {
+      items.push({
+        key: `group-${groupLabel}`,
+        label: t(`nav.${groupLabel}`),
+        children: children.map(({ idx, page }) => ({
+          key: page.path,
+          label: makeLabel(page.title, idx),
+        })),
+      });
+    }
+
+    return items;
+  }, [pages, resolvedCurrentIdx]);
 
   const siderContent = (
     <div
@@ -197,6 +243,8 @@ export default function Articles({ pages, defaultCurrent = 0 }: ArticlesProps) {
         <Menu
           mode="inline"
           selectedKeys={[currentPage.path]}
+          openKeys={openKeys}
+          onOpenChange={setOpenKeys}
           items={menuItems}
           onSelect={({ key }) => {
             const idx = pages.findIndex((page) => page.path === key);
