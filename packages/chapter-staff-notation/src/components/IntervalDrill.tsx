@@ -260,6 +260,17 @@ export default function IntervalDrill() {
         const semitones = parseInt(selectedId.replace('staff-interval-', ''), 10);
         if (!Number.isNaN(semitones)) return semitones;
       }
+      // Fallback: random pick, excluding lastSemitones when range has alternatives
+      if (lastSemitones !== undefined && range[1] - range[0] >= 1) {
+        const min = range[0];
+        const max = range[1];
+        if (min === lastSemitones) return randomInt(min + 1, max);
+        if (max === lastSemitones) return randomInt(min, max - 1);
+        // lastSemitones is inside the range — pick from either side
+        const left = randomInt(min, lastSemitones - 1);
+        const right = randomInt(lastSemitones + 1, max);
+        return Math.random() < 0.5 ? left : right;
+      }
       return randomInt(range[0], range[1]);
     },
     [sr],
@@ -366,10 +377,10 @@ export default function IntervalDrill() {
     }
     rangeDebounceRef.current = window.setTimeout(() => {
       rangeDebounceRef.current = null;
-      const nextSemitones = pickSemitones(nextRange);
+      const nextSemitones = pickSemitones(nextRange, question.semitones);
       setQuestion(makeQuestion(nextRange, store.allowAccidentals, nextSemitones));
     }, 300);
-  }, [store, pickSemitones]);
+  }, [store, pickSemitones, question.semitones]);
 
   const handleAccidentalToggle = useCallback((checked: boolean) => {
     const nextStore: IntervalDrillStore = {
@@ -379,11 +390,11 @@ export default function IntervalDrill() {
     };
 
     setStore(nextStore);
-    const nextSemitones = pickSemitones(nextStore.range);
+    const nextSemitones = pickSemitones(nextStore.range, question.semitones);
     setQuestion(makeQuestion(nextStore.range, nextStore.allowAccidentals, nextSemitones));
     setSelected(null);
     setLastPromotion(null);
-  }, [store, pickSemitones]);
+  }, [store, pickSemitones, question.semitones]);
 
   const handleAnswer = useCallback((value: number) => {
     if (selected !== null) return;

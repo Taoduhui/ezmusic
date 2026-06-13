@@ -427,6 +427,9 @@ export default function Tuner() {
 
       setIsListening(true);
       animFrameRef.current = requestAnimationFrame(processAudio);
+
+      // Refresh device list now that we have permission — labels become available
+      enumerateDevices();
     } catch (err) {
       const message =
         err instanceof DOMException
@@ -438,7 +441,7 @@ export default function Tuner() {
           : t('tuner.micError');
       setError(message);
     }
-  }, [processAudio, t, selectedDeviceId]);
+  }, [processAudio, t, selectedDeviceId, enumerateDevices]);
 
   const stopListening = useCallback(() => {
     cancelAnimationFrame(animFrameRef.current);

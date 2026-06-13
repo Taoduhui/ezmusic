@@ -249,7 +249,13 @@ export function useSRDrill(options: UseSRDrillOptions): UseSRDrillReturn {
 
       // Use SR priority-based selection
       const selected = selectNextCard(allPoolCards, Date.now(), lastItemId);
-      return selected?.id ?? pool[Math.floor(Math.random() * pool.length)];
+      if (selected) return selected.id;
+
+      // Deep fallback: random pick, excluding lastItemId when pool has alternatives
+      const available = pool.length > 1 && lastItemId
+        ? pool.filter((id) => id !== lastItemId)
+        : pool;
+      return available[Math.floor(Math.random() * available.length)];
     },
     [sr],
   );

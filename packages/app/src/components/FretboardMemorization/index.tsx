@@ -249,7 +249,15 @@ export default function FretboardMemorization() {
 
     const selectedId = sr.pickNext(notePool, currentNote ?? undefined);
     const note =
-      selectedId ?? notePool[Math.floor(Math.random() * notePool.length)];
+      selectedId ??
+      (() => {
+        // Fallback: random pick, excluding currentNote when pool has alternatives
+        const available =
+          notePool.length > 1 && currentNote
+            ? notePool.filter((n) => n !== currentNote)
+            : notePool;
+        return available[Math.floor(Math.random() * available.length)];
+      })();
 
     setCurrentNote(note);
     setAnswered(false);

@@ -314,7 +314,16 @@ export default function SightSinging() {
 
     // SR-weighted selection: prefer notes due/overdue for review
     const selectedId = sr.pickNext(notePool, currentNote ?? undefined);
-    const note = selectedId ?? notePool[Math.floor(Math.random() * notePool.length)];
+    const note =
+      selectedId ??
+      (() => {
+        // Fallback: random pick, excluding currentNote when pool has alternatives
+        const available =
+          notePool.length > 1 && currentNote
+            ? notePool.filter((n) => n !== currentNote)
+            : notePool;
+        return available[Math.floor(Math.random() * available.length)];
+      })();
     const correctSolfege = getSolfege(note);
     const distractors = getSolfegeDistractors(correctSolfege);
     const options = shuffleArray([correctSolfege, ...distractors]);
