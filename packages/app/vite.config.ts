@@ -31,6 +31,7 @@ export default defineConfig(({ command }) => ({
         categories: ['education', 'music'],
       },
       workbox: {
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024, // 4 MiB
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         runtimeCaching: [
           {
