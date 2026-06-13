@@ -5,7 +5,7 @@
  * correct solfège syllable (唱名) from three options at the bottom.
  *
  * A settings button (top-right) opens a drawer where the user can configure
- * the note range (default E2–C5, displayed one octave below actual pitch).
+ * the fret range and sound playback.
  */
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
@@ -35,19 +35,22 @@ const { useBreakpoint } = Grid;
 // ---------------------------------------------------------------------------
 
 /** Chromatic pitch classes (sharp form). */
-const CHROMATIC_PC = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+const CHROMATIC = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
-/** Flat → sharp mapping for note parsing. */
+/** Natural pitch classes. */
+const NATURAL_PC = new Set(['C', 'D', 'E', 'F', 'G', 'A', 'B']);
+
+/** Flat → sharp mapping. */
 const FLAT_TO_SHARP: Record<string, string> = {
   Bb: 'A#', Db: 'C#', Eb: 'D#', Gb: 'F#', Ab: 'G#',
 };
 
-/** Natural pitch classes (no accidentals). */
-const NATURAL_PC = new Set(['C', 'D', 'E', 'F', 'G', 'A', 'B']);
+/** Standard guitar tuning from low (string 6) to high (string 1). */
+const GUITAR_TUNING = ['E2', 'A2', 'D3', 'G3', 'B3', 'E4'];
 
-/** Default note range (displayed values — one octave below actual pitch). */
-const DEFAULT_FROM = 'E2';
-const DEFAULT_TO = 'C5';
+const MAX_FRET = 24;
+const DEFAULT_FRET_START = 0;
+const DEFAULT_FRET_END = 5;
 
 const STORAGE_KEY = 'ezmusic-sight-singing-settings';
 
@@ -59,7 +62,7 @@ const WALK_GAP_MS = 75;
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Parse a scientific note name into pitch-class and octave. */
+/** Parse scientific note name into pitch-class and octave. */
 function parseNote(note: string): { pc: string; octave: number } {
   const match = /^([A-G][#b]?)(\d+)$/.exec(note);
   if (!match) throw new Error(`Invalid note: ${note}`);
@@ -68,51 +71,59 @@ function parseNote(note: string): { pc: string; octave: number } {
   return { pc, octave: parseInt(match[2], 10) };
 }
 
-/** Compute a linear index for a note (semitones from C0). */
-function noteIndex(note: string): number {
-  const { pc, octave } = parseNote(note);
-  const pcIdx = CHROMATIC_PC.indexOf(pc);
-  if (pcIdx === -1) return 0;
-  return octave * 12 + pcIdx;
+/**
+ * Get the scientific note name at a given string index (0 = low E) and fret.
+ * Fret 0 = open string.
+ */
+function getFretNote(stringIdx: number, fret: number): string {
+  const baseNote = GUITAR_TUNING[stringIdx];
+  const { pc, octave } = parseNote(baseNote);
+  const baseIdx = CHROMATIC.indexOf(pc);
+  if (baseIdx === -1) return baseNote;
+
+  const totalIdx = baseIdx + fret;
+  const newOctave = octave + Math.floor(totalIdx / 12);
+  const newPC = CHROMATIC[totalIdx % 12];
+  return `${newPC}${newOctave}`;
 }
 
-/** Generate all natural notes between two note names (inclusive). */
-function generateNaturalNotes(from: string, to: string): string[] {
-  const fromIdx = noteIndex(from);
-  const toIdx = noteIndex(to);
-  const start = Math.min(fromIdx, toIdx);
-  const end = Math.max(fromIdx, toIdx);
-
+/** Generate all unique *natural* notes found on the fretboard within [fretStart, fretEnd]. */
+function generateFretboardNotes(fretStart: number, fretEnd: number): string[] {
+  const seen = new Set<string>();
   const notes: string[] = [];
-  for (let i = start; i <= end; i++) {
-    const pc = CHROMATIC_PC[i % 12];
-    if (NATURAL_PC.has(pc)) {
-      notes.push(`${pc}${Math.floor(i / 12)}`);
+  for (let si = 0; si < GUITAR_TUNING.length; si++) {
+    for (let f = fretStart; f <= fretEnd; f++) {
+      const note = getFretNote(si, f);
+      const { pc } = parseNote(note);
+      if (NATURAL_PC.has(pc) && !seen.has(note)) {
+        seen.add(note);
+        notes.push(note);
+      }
     }
   }
   return notes;
 }
 
-/** Shift a scientific note name by a number of octaves (e.g. E2 → E3 with delta=+1). */
+/** Shift a scientific note name by a number of octaves (e.g. C4 → C5 with delta=1). */
 function shiftOctave(note: string, delta: number): string {
   const match = /^([A-G][#b]?)(\d+)$/.exec(note);
   if (!match) return note;
   return `${match[1]}${parseInt(match[2], 10) + delta}`;
 }
 
-/** Build all possible chromatic note names for the range dropdowns.
- *  Displayed one octave below actual pitch (guitar-style octave transposition). */
-function buildAllNoteOptions(): { value: string; label: string }[] {
-  const options: { value: string; label: string }[] = [];
-  for (let octave = 1; octave <= 5; octave++) {
-    for (let i = 0; i < CHROMATIC_PC.length; i++) {
-      if (octave === 5 && i > 0) break; // stop at C5
-      const pc = CHROMATIC_PC[i];
-      options.push({ value: `${pc}${octave}`, label: `${pc}${octave}` });
-    }
+/** Build fret options for the dropdown: 0品 … 24品. */
+function buildFretOptions(): { value: number; label: string }[] {
+  const options: { value: number; label: string }[] = [];
+  for (let i = 0; i <= MAX_FRET; i++) {
+    options.push({
+      value: i,
+      label: i === 0 ? '空弦' : `${i} 品`,
+    });
   }
   return options;
 }
+
+const FRET_OPTIONS = buildFretOptions();
 
 /** Map a note's pitch class to its solfège syllable (C-major / fixed-Do). */
 function getSolfege(note: string): string {
@@ -148,15 +159,13 @@ function getSolfegeDistractors(correctSolfege: string): string[] {
   return candidates;
 }
 
-const ALL_NOTE_OPTIONS = buildAllNoteOptions();
-
 // ---------------------------------------------------------------------------
 // Persistence
 // ---------------------------------------------------------------------------
 
 interface SightSingingSettings {
-  fromNote: string;
-  toNote: string;
+  fretStart: number;
+  fretEnd: number;
   playSound: boolean;
 }
 
@@ -166,13 +175,13 @@ function loadSettings(): SightSingingSettings {
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<SightSingingSettings>;
       return {
-        fromNote: parsed.fromNote ?? DEFAULT_FROM,
-        toNote: parsed.toNote ?? DEFAULT_TO,
+        fretStart: parsed.fretStart ?? DEFAULT_FRET_START,
+        fretEnd: parsed.fretEnd ?? DEFAULT_FRET_END,
         playSound: parsed.playSound ?? true,
       };
     }
   } catch { /* ignore corrupt data */ }
-  return { fromNote: DEFAULT_FROM, toNote: DEFAULT_TO, playSound: true };
+  return { fretStart: DEFAULT_FRET_START, fretEnd: DEFAULT_FRET_END, playSound: true };
 }
 
 function saveSettings(settings: SightSingingSettings): void {
@@ -244,8 +253,8 @@ export default function SightSinging() {
   // ---- Settings state ----
   const [settingsOpen, setSettingsOpen] = useState(false);
   const persisted = useMemo(() => loadSettings(), []);
-  const [fromNote, setFromNote] = useState(persisted.fromNote);
-  const [toNote, setToNote] = useState(persisted.toNote);
+  const [fretStart, setFretStart] = useState(persisted.fretStart);
+  const [fretEnd, setFretEnd] = useState(persisted.fretEnd);
   const [playSound, setPlaySound] = useState(persisted.playSound);
 
   // ---- Question state ----
@@ -261,8 +270,8 @@ export default function SightSinging() {
 
   // ---- Derived ----
   const notePool = useMemo(
-    () => generateNaturalNotes(shiftOctave(fromNote, 1), shiftOctave(toNote, 1)),
-    [fromNote, toNote],
+    () => generateFretboardNotes(fretStart, fretEnd),
+    [fretStart, fretEnd],
   );
 
   // Ensure SR cards exist for all notes in the pool
@@ -310,7 +319,7 @@ export default function SightSinging() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Regenerate when note range changes
+  // Regenerate when fret range changes
   useEffect(() => {
     if (autoAdvanceRef.current !== null) {
       window.clearTimeout(autoAdvanceRef.current);
@@ -318,12 +327,12 @@ export default function SightSinging() {
     }
     nextQuestion();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fromNote, toNote]);
+  }, [fretStart, fretEnd]);
 
   // Persist settings whenever they change
   useEffect(() => {
-    saveSettings({ fromNote, toNote, playSound });
-  }, [fromNote, toNote, playSound]);
+    saveSettings({ fretStart, fretEnd, playSound });
+  }, [fretStart, fretEnd, playSound]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -410,7 +419,7 @@ export default function SightSinging() {
 
   const handleSettingsClose = useCallback(() => {
     setSettingsOpen(false);
-    // Regenerate question if range changed (handled by the useEffect on fromNote/toNote)
+    // Regenerate question if range changed (handled by the useEffect on fretStart/fretEnd)
   }, []);
 
   // ---- Render ----
@@ -508,9 +517,9 @@ export default function SightSinging() {
           </Text>
           {currentNote && (
             <StaffDisplay
-              notes={currentNote}
+              notes={shiftOctave(currentNote, 1)}
               clef="treble"
-              highlightNote={chosen !== null ? currentNote : undefined}
+              highlightNote={chosen !== null ? shiftOctave(currentNote, 1) : undefined}
               width={staffWidth}
               height={210}
             />
@@ -556,48 +565,46 @@ export default function SightSinging() {
         width={isDesktop ? 320 : '100%'}
       >
         <Space direction="vertical" style={{ width: '100%' }} size={24}>
-          {/* Note range */}
+          {/* Fret range */}
           <div>
             <Text strong style={{ display: 'block', marginBottom: 8 }}>
-              {t('sightSinging.noteRange')}
+              {t('sightSinging.fretRange')}
             </Text>
             <Space size={8}>
               <Select
-                value={fromNote}
+                value={fretStart}
                 onChange={(v) => {
-                  setFromNote(v);
+                  setFretStart(v);
+                  if (v > fretEnd) setFretEnd(Math.min(v + 5, MAX_FRET));
                   setChosen(null);
                   if (autoAdvanceRef.current !== null) {
                     window.clearTimeout(autoAdvanceRef.current);
                     autoAdvanceRef.current = null;
                   }
                 }}
-                options={ALL_NOTE_OPTIONS}
-                style={{ width: 120 }}
-                showSearch
-                optionFilterProp="label"
+                options={FRET_OPTIONS}
+                style={{ width: 110 }}
                 placeholder={t('sightSinging.from')}
               />
               <Text type="secondary">{t('sightSinging.to')}</Text>
               <Select
-                value={toNote}
+                value={fretEnd}
                 onChange={(v) => {
-                  setToNote(v);
+                  setFretEnd(v);
+                  if (v < fretStart) setFretStart(Math.max(v - 5, 0));
                   setChosen(null);
                   if (autoAdvanceRef.current !== null) {
                     window.clearTimeout(autoAdvanceRef.current);
                     autoAdvanceRef.current = null;
                   }
                 }}
-                options={ALL_NOTE_OPTIONS}
-                style={{ width: 120 }}
-                showSearch
-                optionFilterProp="label"
+                options={FRET_OPTIONS}
+                style={{ width: 110 }}
                 placeholder={t('sightSinging.to')}
               />
             </Space>
             <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
-              {t('sightSinging.noteRangeHint', { count: notePool.length })}
+              {t('sightSinging.fretRangeHint', { count: notePool.length })}
             </Text>
           </div>
 
