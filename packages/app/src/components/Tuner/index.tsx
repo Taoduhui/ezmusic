@@ -16,7 +16,7 @@ import {
   MenuOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { triggerOpenDrawer, detectPitchYIN, buildTunableNotes, findClosestNote, centsDiff, DEFAULT_MIN_FREQ_HZ, DEFAULT_MAX_FREQ_HZ, YIN_THRESHOLD, A4_FREQ, NOTE_NAMES, SEMITONE_RATIO, C0_FREQ } from '@ezmusic/shared';
+import { triggerOpenDrawer, detectPitchYIN, buildTunableNotes, findClosestNote, centsDiff, DEFAULT_MIN_FREQ_HZ, DEFAULT_MAX_FREQ_HZ, YIN_THRESHOLD, A4_FREQ, NOTE_NAMES, SEMITONE_RATIO, C0_FREQ, DBG, createDebugLogger } from '@ezmusic/shared';
 import type { TunableNote, YinOptions } from '@ezmusic/shared';
 
 const { Text } = Typography;
@@ -58,6 +58,8 @@ const HIGH_PASS_CUTOFF_HZ = 180;
 const TARGET_RANGE_OCTAVES = 0.5;
 
 // ---- diagnostic logging (module-level throttle) ----
+const dbgDetect = createDebugLogger('Tuner:detect');
+const dbg = createDebugLogger('Tuner');
 let detectLogCounter = 0;
 const DETECT_LOG_EVERY_N = 30;
 
@@ -151,9 +153,11 @@ function detectPitch(
   if (rms < MIN_RMS_THRESHOLD) {
     detectLogCounter++;
     if (detectLogCounter % DETECT_LOG_EVERY_N === 0) {
-      console.log(
-        `%c🔇 RMS gate: ${rms.toFixed(6)} < ${MIN_RMS_THRESHOLD} — returning null`,
+      dbgDetect.debug(
+        '%c🔇 RMS gate: %s < %s — returning null',
         'color:#ff6b6b',
+        rms.toFixed(6),
+        MIN_RMS_THRESHOLD.toString(),
       );
     }
     return null;
@@ -176,10 +180,13 @@ function detectPitch(
       const expectedLag = Math.round(sampleRate / (searchMinLag != null
         ? sampleRate / ((searchMinLag + (searchMaxLag ?? searchMinLag)) / 2)
         : 440));
-      console.log(
-        `%c📉 YIN reject — RMS passed (${rms.toFixed(5)} ≥ ${MIN_RMS_THRESHOLD}) ` +
-        `but CMND quality gate failed. searchLag=[${searchMinLag ?? '-'},${searchMaxLag ?? '-'}]`,
+      dbgDetect.debug(
+        '%c📉 YIN reject — RMS passed (%s ≥ %s) but CMND quality gate failed. searchLag=[%s,%s]',
         'color:#ff6b6b',
+        rms.toFixed(5),
+        MIN_RMS_THRESHOLD.toString(),
+        searchMinLag ?? '-',
+        searchMaxLag ?? '-',
       );
     }
     return null;
@@ -188,14 +195,15 @@ function detectPitch(
   // ---- diagnostic logging (throttled) ------------------------------------
   detectLogCounter++;
   if (detectLogCounter % DETECT_LOG_EVERY_N === 0) {
-    console.log(
-      `%c🔍 YIN detectPitch #${detectLogCounter}`,
+    dbgDetect.debug(
+      '%c🔍 YIN detectPitch #%d',
       'color:#f5a623;font-weight:bold',
+      detectLogCounter,
     );
-    console.log('  sampleRate:', sampleRate);
-    console.log('  tau:', result.tau.toFixed(4));
-    console.log('  cmnd at tau:', result.cmndValue.toFixed(6));
-    console.log('  freq:', result.freq.toFixed(4), 'Hz');
+    dbgDetect.debug('  sampleRate:', sampleRate);
+    dbgDetect.debug('  tau:', result.tau.toFixed(4));
+    dbgDetect.debug('  cmnd at tau:', result.cmndValue.toFixed(6));
+    dbgDetect.debug('  freq:', result.freq.toFixed(4), 'Hz');
   }
 
   return result.freq;
@@ -441,27 +449,27 @@ export default function Tuner() {
       logCounterRef.current++;
       if (detected === null || logCounterRef.current % HIGH_NOTE_DIAG_LOG_INTERVAL === 0) {
         const expectedLag = Math.round(sampleRate / curTargetFreq);
-        console.group(
-          `%c🔬 High-Note Diag #${logCounterRef.current} target=${targetNoteRef.current} (${curTargetFreq} Hz)`,
+        dbg.group(
+          `🔬 High-Note Diag #${logCounterRef.current} target=${targetNoteRef.current} (${curTargetFreq} Hz)`,
           detected === null ? 'color:#ff6b6b;font-weight:bold' : 'color:#68f0a5',
         );
-        console.log('RMS:', rms.toFixed(6), '| threshold:', MIN_RMS_THRESHOLD.toFixed(2), '| passes:', rms >= MIN_RMS_THRESHOLD);
-        console.log('peak:', peakAbs.toFixed(6), '| crest factor:', rms > 0 ? (peakAbs / rms).toFixed(2) : '∞');
-        console.log('volume (UI):', (rms * VOLUME_SCALE).toFixed(4));
-        console.log('band power — bass:', (bassRatio * 100).toFixed(1) + '%',
+        dbg.debug('RMS:', rms.toFixed(6), '| threshold:', MIN_RMS_THRESHOLD.toFixed(2), '| passes:', rms >= MIN_RMS_THRESHOLD);
+        dbg.debug('peak:', peakAbs.toFixed(6), '| crest factor:', rms > 0 ? (peakAbs / rms).toFixed(2) : '∞');
+        dbg.debug('volume (UI):', (rms * VOLUME_SCALE).toFixed(4));
+        dbg.debug('band power — bass:', (bassRatio * 100).toFixed(1) + '%',
           'mid:', (midRatio * 100).toFixed(1) + '%',
           'high:', (highRatio * 100).toFixed(1) + '%');
-        console.log('searchMinLag:', searchMinLag, '| searchMaxLag:', searchMaxLag,
+        dbg.debug('searchMinLag:', searchMinLag, '| searchMaxLag:', searchMaxLag,
           '| expectedLag:', expectedLag,
           '| expectedFreq:', (sampleRate / expectedLag).toFixed(2), 'Hz');
         if (detected !== null) {
-          console.log('%cdetected: %c' + detected.toFixed(2) + ' Hz',
-            '', 'color:#f5a623;font-weight:bold');
+          dbg.debug('%cdetected: %c%s Hz',
+            '', 'color:#f5a623;font-weight:bold', detected.toFixed(2));
         } else {
-          console.log('%c❌ detectPitch returned NULL — signal lost or pitch undetectable',
+          dbg.debug('%c❌ detectPitch returned NULL — signal lost or pitch undetectable',
             'color:#ff6b6b;font-weight:bold');
         }
-        console.groupEnd();
+        dbg.groupEnd();
       }
     }
 
@@ -492,19 +500,20 @@ export default function Tuner() {
       if (burstLogRemainingRef.current > 0) {
         burstLogRemainingRef.current--;
         const snap = burstSnapshotRef.current;
-        console.group(
-          `%c⚡ Burst #${BURST_LOG_FRAMES - burstLogRemainingRef.current}/${BURST_LOG_FRAMES}`,
+        dbg.group(
+          `⚡ Burst #${BURST_LOG_FRAMES - burstLogRemainingRef.current}/${BURST_LOG_FRAMES}`,
           'color:#ff9f43;font-weight:bold',
+          DBG.TRACE,
         );
         if (snap) {
-          console.log('trigger:', snap.reason);
+          dbg.trace('trigger:', snap.reason);
         }
-        console.log('frame#:', logCounterRef.current + 1);
-        console.log('detectedFreq:', detected.toFixed(4), 'Hz');
-        console.log('rawDiff:', rawDiff.toFixed(4), 'Hz');
-        console.log('smoothResult:', smoothResult.value.toFixed(4), 'Hz');
+        dbg.trace('frame#:', logCounterRef.current + 1);
+        dbg.trace('detectedFreq:', detected.toFixed(4), 'Hz');
+        dbg.trace('rawDiff:', rawDiff.toFixed(4), 'Hz');
+        dbg.trace('smoothResult:', smoothResult.value.toFixed(4), 'Hz');
         if (smoothResult.didReset) {
-          console.log(
+          dbg.trace(
             '%c⚠ RESET: rawDiff %.2f jumped from avg %.2f (delta=%.2f > 50)',
             'color:#ff6b6b;font-weight:bold',
             rawDiff,
@@ -512,9 +521,9 @@ export default function Tuner() {
             Math.abs(rawDiff - (smoothResult.prevAvg ?? 0)),
           );
         }
-        console.log('smoothed history size:', hzHistoryRef.current.length);
-        console.log('closestNote:', closestNote.label);
-        console.groupEnd();
+        dbg.trace('smoothed history size:', hzHistoryRef.current.length);
+        dbg.trace('closestNote:', closestNote.label);
+        dbg.groupEnd();
       }
 
       // ---- diagnostic logging (throttled) ----
@@ -524,57 +533,57 @@ export default function Tuner() {
         const diffFromTarget = detected - curTargetFreq;
         const centsFromClosest = centsDiff(detected, closestNote.freq);
         const centsFromTarget = centsDiff(detected, curTargetFreq);
-        console.group(
-          `%c🎵 Tuner Debug #${logCounterRef.current}`,
+        dbg.group(
+          `🎵 Tuner Debug #${logCounterRef.current}`,
           'color:#68f0a5;font-weight:bold',
         );
-        console.log('sampleRate:', analyser.context.sampleRate, 'Hz');
-        console.log('buffer length:', buffer.length);
-        console.log('RMS:', rms.toFixed(4));
-        console.log(
+        dbg.debug('sampleRate:', analyser.context.sampleRate, 'Hz');
+        dbg.debug('buffer length:', buffer.length);
+        dbg.debug('RMS:', rms.toFixed(4));
+        dbg.debug(
           '%cdetectedFreq: %c%s Hz',
           '',
           'color:#f5a623;font-weight:bold',
           detected.toFixed(4),
         );
-        console.log('closestNote:', closestNote.label, `(${closestNote.freq} Hz)`);
-        console.log('rawDiff (detected - target):', rawDiff.toFixed(4), 'Hz');
-        console.log(
+        dbg.debug('closestNote:', closestNote.label, `(${closestNote.freq} Hz)`);
+        dbg.debug('rawDiff (detected - target):', rawDiff.toFixed(4), 'Hz');
+        dbg.debug(
           'smoothedDiff:',
           lastGoodHzDiffRef.current?.toFixed(4),
           'Hz',
         );
-        console.log('targetNote:', targetNoteRef.current, `(${curTargetFreq} Hz)`);
-        console.log('diffFromTarget:', diffFromTarget.toFixed(4), 'Hz');
-        console.log(
+        dbg.debug('targetNote:', targetNoteRef.current, `(${curTargetFreq} Hz)`);
+        dbg.debug('diffFromTarget:', diffFromTarget.toFixed(4), 'Hz');
+        dbg.debug(
           'centsFromClosest:',
           centsFromClosest.toFixed(2),
           'cents',
         );
-        console.log(
+        dbg.debug(
           'centsFromTarget:',
           centsFromTarget.toFixed(2),
           'cents',
         );
-        console.log('meterX (target):', mapDiffToMeterX(rawDiff, diffRangeHz).toFixed(1));
+        dbg.debug('meterX (target):', mapDiffToMeterX(rawDiff, diffRangeHz).toFixed(1));
         // Also log what meterX would be if measured from target instead of closest
         const diffRangeHzAlt = Math.max(
           curTargetFreq - leftAdjFreq,
           rightAdjFreq - curTargetFreq,
         );
-        console.log(
+        dbg.debug(
           'meterX (if diff-from-target):',
           mapDiffToMeterX(diffFromTarget, diffRangeHzAlt).toFixed(1),
         );
-        console.log('diffRangeHz:', diffRangeHz.toFixed(2));
-        console.log(
+        dbg.debug('diffRangeHz:', diffRangeHz.toFixed(2));
+        dbg.debug(
           `leftAdj: ${leftAdjLabel}(${leftAdjFreq}Hz)  ` +
             `target: ${targetNoteRef.current}(${curTargetFreq}Hz)  ` +
             `rightAdj: ${rightAdjLabel}(${rightAdjFreq}Hz)`,
         );
-        console.log('smoothed history size:', hzHistoryRef.current.length);
-        console.log('volume:', volume.toFixed(3));
-        console.groupEnd();
+        dbg.debug('smoothed history size:', hzHistoryRef.current.length);
+        dbg.debug('volume:', volume.toFixed(3));
+        dbg.groupEnd();
       }
     } else {
       // Mark when signal was lost (only on first silent frame).
@@ -583,11 +592,15 @@ export default function Tuner() {
       if (signalLostAtRef.current === 0) {
         signalLostAtRef.current = performance.now();
         // On first silent frame, emit a one‑shot diagnostic explaining why
-        console.log(
-          `%c🔇 Signal lost — RMS: ${rms.toFixed(6)} (threshold: ${MIN_RMS_THRESHOLD}), ` +
-          `peak: ${peakAbs.toFixed(6)}, ` +
-          `band power bass/mid/high: ${(bassRatio*100).toFixed(0)}/${(midRatio*100).toFixed(0)}/${(highRatio*100).toFixed(0)}%`,
+        dbg.debug(
+          '%c🔇 Signal lost — RMS: %s (threshold: %s), peak: %s, band power bass/mid/high: %s/%s/%s%',
           'color:#ff6b6b',
+          rms.toFixed(6),
+          MIN_RMS_THRESHOLD.toString(),
+          peakAbs.toFixed(6),
+          (bassRatio * 100).toFixed(0),
+          (midRatio * 100).toFixed(0),
+          (highRatio * 100).toFixed(0),
         );
       }
     }

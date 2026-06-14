@@ -29,6 +29,8 @@ import {
   YIN_THRESHOLD,
   DEFAULT_MIN_FREQ_HZ,
   DEFAULT_MAX_FREQ_HZ,
+  DBG,
+  createDebugLogger,
 } from '@ezmusic/shared';
 import type { TunableNote, YinOptions } from '@ezmusic/shared';
 import { useSRDrill } from '@ezmusic/spaced-repetition';
@@ -122,6 +124,9 @@ const DASHBOARD_HEIGHT = 150;
 const DASHBOARD_CENTER_X = 400;
 const DASHBOARD_X_RANGE = 160;
 const DASHBOARD_WIDTH = 800;
+
+// ---- Debug logger ----
+const dbg = createDebugLogger('SR');
 
 // ---------------------------------------------------------------------------
 // Helpers — note theory
@@ -688,7 +693,7 @@ export default function SightReading() {
     setMatchState('idle');
     stableFramesRef.current = 0;
     lastDetectedNoteRef.current = null;
-    console.log(`[SR:question] new target=${note} pool=${notePool.length}notes playSound=${playSound}`);
+    dbg.info(`[question] new target=${note} pool=${notePool.length}notes playSound=${playSound}`);
 
     if (playSound) {
       void playNote(note, NOTE_PLAY_DURATION);
@@ -795,7 +800,7 @@ export default function SightReading() {
 
     // Periodic diagnostic
     if (frameN % 60 === 0) {
-      console.log(`[SR:gate] f=${frameN} rms=${rms.toFixed(4)} noiseFloor=${noiseFloorRef.current.toFixed(4)} threshold=${threshold.toFixed(4)} open=${gateOpen}`);
+      dbg.debug(`[gate] f=${frameN} rms=${rms.toFixed(4)} noiseFloor=${noiseFloorRef.current.toFixed(4)} threshold=${threshold.toFixed(4)} open=${gateOpen}`);
     }
 
     if (!gateOpen) {
@@ -811,7 +816,7 @@ export default function SightReading() {
     // Log YIN input context on every frame so YIN:dbg lines can be correlated
     // with gate state.  Use a brief log to keep the console readable.
     if (frameN % 5 === 0) {
-      console.log(`[SR:yin-call] f=${frameN} rms=${rms.toFixed(4)} gate=open → calling YIN`);
+      dbg.debug(`[yin-call] f=${frameN} rms=${rms.toFixed(4)} gate=open → calling YIN`);
     }
     const detected = detectPitch(buffer, analyser.context.sampleRate, currentNoteRef.current);
 
@@ -835,16 +840,16 @@ export default function SightReading() {
           stableFramesRef.current++;
           // Log every frame during early stability, then every 5
           if (stableFramesRef.current <= 5 || stableFramesRef.current % 5 === 0) {
-            console.log(`[SR:stable] f=${frameN} note=${closest.label} target=${curNote} stable=${stableFramesRef.current}/${STABILITY_FRAMES} match=${closest.label === curNote} rms=${rms.toFixed(4)} freq=${detected.toFixed(1)}`);
+            dbg.debug(`[stable] f=${frameN} note=${closest.label} target=${curNote} stable=${stableFramesRef.current}/${STABILITY_FRAMES} match=${closest.label === curNote} rms=${rms.toFixed(4)} freq=${detected.toFixed(1)}`);
           }
           if (stableFramesRef.current >= STABILITY_FRAMES) {
             const correct = closest.label === curNote;
-            console.log(`[SR:SUBMIT] f=${frameN} detected=${closest.label} target=${curNote} correct=${correct} history=[${history.join(',')}]`);
+            dbg.info(`[SUBMIT] f=${frameN} detected=${closest.label} target=${curNote} correct=${correct} history=[${history.join(',')}]`);
             handleAnswerRef.current(correct, closest.label);
           }
         } else {
           // Note changed — log the flicker event with history
-          console.log(`[SR:flicker] f=${frameN} ${prevDetected}→${closest.label} stable_was=${stableFramesRef.current} target=${curNote} rms=${rms.toFixed(4)} history=[${history.join(',')}]`);
+          dbg.debug(`[flicker] f=${frameN} ${prevDetected}→${closest.label} stable_was=${stableFramesRef.current} target=${curNote} rms=${rms.toFixed(4)} history=[${history.join(',')}]`);
           stableFramesRef.current = 0;
         }
         lastDetectedNoteRef.current = closest.label;
@@ -854,7 +859,7 @@ export default function SightReading() {
     } else {
       // Signal lost — always log if we were building stability
       if (stableFramesRef.current > 0) {
-        console.log(`[SR:lost] f=${frameN} rms=${rms.toFixed(4)} detected=${detected} stable_was=${stableFramesRef.current}`);
+        dbg.debug(`[lost] f=${frameN} rms=${rms.toFixed(4)} detected=${detected} stable_was=${stableFramesRef.current}`);
       }
       stableFramesRef.current = 0;
       lastDetectedNoteRef.current = null;
@@ -872,7 +877,7 @@ export default function SightReading() {
   // ---- Audio start / stop ----
 
   const startListening = useCallback(async () => {
-    console.log('[SR:mic] startListening called, requesting microphone...');
+    dbg.info('[mic] startListening called, requesting microphone...');
     setMicError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -907,13 +912,13 @@ export default function SightReading() {
 
       setIsListening(true);
       setMatchState('idle');
-      console.log('[SR:mic] microphone acquired, sampleRate=' + audioCtx.sampleRate + 'Hz, starting RAF loop');
+      dbg.info('[mic] microphone acquired, sampleRate=' + audioCtx.sampleRate + 'Hz, starting RAF loop');
       animFrameRef.current = requestAnimationFrame(processAudioRef.current);
 
       // Refresh device list now that we have permission — labels become available
       enumerateDevices();
     } catch (err) {
-      console.error('[SR:mic] microphone error:', err);
+      dbg.error('[mic] microphone error:', err);
       const message =
         err instanceof DOMException
           ? err.name === 'NotAllowedError'
@@ -927,7 +932,7 @@ export default function SightReading() {
   }, [t, selectedDeviceId, enumerateDevices]);
 
   const stopListening = useCallback(() => {
-    console.log('[SR:mic] stopListening called');
+    dbg.info('[mic] stopListening called');
     cancelAnimationFrame(animFrameRef.current);
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
@@ -950,9 +955,9 @@ export default function SightReading() {
 
   const handleAnswer = useCallback(
     (correct: boolean, playedNote: string) => {
-      console.log(`[SR:answer] called — played=${playedNote} correct=${correct} currentNote=${currentNote} answered=${answered}`);
+      dbg.info(`[answer] called — played=${playedNote} correct=${correct} currentNote=${currentNote} answered=${answered}`);
       if (!currentNote || answered) {
-        console.log(`[SR:answer] BLOCKED — currentNote=${currentNote} answered=${answered}`);
+        dbg.debug(`[answer] BLOCKED — currentNote=${currentNote} answered=${answered}`);
         return;
       }
 

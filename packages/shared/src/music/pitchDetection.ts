@@ -9,6 +9,8 @@
 
 // ---- Note & pitch reference ----
 
+import { getDebugLevel, DBG } from '../utils/debug';
+
 /** Standard concert pitch (Hz). */
 export const A4_FREQ = 440;
 /** Ratio between adjacent semitones in equal temperament. */
@@ -235,7 +237,9 @@ export function detectPitchYIN(
   const yinThreshold = options?.yinThreshold ?? YIN_THRESHOLD;
   const minFreqHz = options?.minFreqHz ?? DEFAULT_MIN_FREQ_HZ;
   const maxFreqHz = options?.maxFreqHz ?? DEFAULT_MAX_FREQ_HZ;
-  const debug = options?.debug ?? false;
+  // Per-call `debug` option takes precedence; otherwise respect the global
+  // window.debugLevel flag so all debug output can be toggled at runtime.
+  const debug = options?.debug ?? (getDebugLevel() >= DBG.DEBUG);
 
   // ---- full-range lag bounds (for CMND normalisation) --------------------
   const fullMinLag = Math.max(1, Math.floor(sampleRate / maxFreqHz));

@@ -11,3 +11,12 @@ export { default as GuitarFretboard } from './components/GuitarFretboard';
 export type { GuitarFretboardProps } from './components/GuitarFretboard';
 
 export { setDrawerTrigger, triggerOpenDrawer } from './utils/drawerTrigger';
+
+export {
+  DBG,
+  ensureDebugLevel,
+  setDebugLevel,
+  getDebugLevel,
+  createDebugLogger,
+} from './utils/debug';
+export type { DebugLevel, DebugLogger } from './utils/debug';
