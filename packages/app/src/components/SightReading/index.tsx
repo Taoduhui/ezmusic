@@ -11,7 +11,7 @@
  */
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
-  Button, Typography, Drawer, Select, Space, Grid, message, Card, Switch, Progress,
+  Button, Typography, Drawer, Select, Slider, Space, Grid, message, Card, Switch, Progress,
 } from 'antd';
 import {
   SettingOutlined, SoundOutlined, AudioOutlined, AudioMutedOutlined,
@@ -51,6 +51,11 @@ const GUITAR_TUNING = ['E2', 'A2', 'D3', 'G3', 'B3', 'E4'];
 const MAX_FRET = 24;
 const DEFAULT_FRET_START = 0;
 const DEFAULT_FRET_END = 5;
+
+const DEFAULT_MIC_GAIN = 1.0;
+const MIC_GAIN_MIN = 0.1;
+const MIC_GAIN_MAX = 5.0;
+const MIC_GAIN_STEP = 0.1;
 
 const STORAGE_KEY = 'ezmusic-sight-reading-settings';
 
@@ -281,6 +286,7 @@ interface SightReadingSettings {
   fretStart: number;
   fretEnd: number;
   playSound: boolean;
+  micGain: number;
   selectedDeviceId: string | undefined;
 }
 
@@ -293,11 +299,12 @@ function loadSettings(): SightReadingSettings {
         fretStart: parsed.fretStart ?? DEFAULT_FRET_START,
         fretEnd: parsed.fretEnd ?? DEFAULT_FRET_END,
         playSound: parsed.playSound ?? true,
+        micGain: parsed.micGain ?? DEFAULT_MIC_GAIN,
         selectedDeviceId: parsed.selectedDeviceId ?? undefined,
       };
     }
   } catch { /* ignore corrupt data */ }
-  return { fretStart: DEFAULT_FRET_START, fretEnd: DEFAULT_FRET_END, playSound: true, selectedDeviceId: undefined };
+  return { fretStart: DEFAULT_FRET_START, fretEnd: DEFAULT_FRET_END, playSound: true, micGain: DEFAULT_MIC_GAIN, selectedDeviceId: undefined };
 }
 
 function saveSettings(settings: SightReadingSettings): void {
@@ -603,6 +610,7 @@ export default function SightReading() {
   const [fretStart, setFretStart] = useState(persisted.fretStart);
   const [fretEnd, setFretEnd] = useState(persisted.fretEnd);
   const [playSound, setPlaySound] = useState(persisted.playSound);
+  const [micGain, setMicGain] = useState(persisted.micGain);
 
   // ---- Question state ----
   const [currentNote, setCurrentNote] = useState<string | null>(null);
@@ -737,8 +745,8 @@ export default function SightReading() {
 
   // Persist settings whenever they change
   useEffect(() => {
-    saveSettings({ fretStart, fretEnd, playSound, selectedDeviceId });
-  }, [fretStart, fretEnd, playSound, selectedDeviceId]);
+    saveSettings({ fretStart, fretEnd, playSound, micGain, selectedDeviceId });
+  }, [fretStart, fretEnd, playSound, micGain, selectedDeviceId]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -761,6 +769,8 @@ export default function SightReading() {
   currentNoteRef.current = currentNote;
   const isListeningRef = useRef(isListening);
   isListeningRef.current = isListening;
+  const micGainRef = useRef(micGain);
+  micGainRef.current = micGain;
 
   // Debug: track recent detection history to diagnose flickering
   const debugFrameRef = useRef(0);
@@ -775,6 +785,12 @@ export default function SightReading() {
 
     const buffer = bufferRef.current;
     analyser.getFloatTimeDomainData(buffer);
+
+    // Apply digital microphone gain
+    const gain = micGainRef.current;
+    if (gain !== 1.0) {
+      for (let i = 0; i < buffer.length; i++) buffer[i] *= gain;
+    }
 
     // Compute volume (RMS)
     let sumSq = 0;
@@ -1248,6 +1264,32 @@ export default function SightReading() {
             <Text type="secondary" style={{ fontSize: 12 }}>
               {t('sightReading.playSoundDesc')}
             </Text>
+          </div>
+
+          {/* Microphone gain */}
+          <div>
+            <Text strong style={{ display: 'block', marginBottom: 8 }}>
+              {t('sightReading.micGain')}
+            </Text>
+            <Text type="secondary" style={{ display: 'block', marginBottom: 8, fontSize: 12 }}>
+              {t('sightReading.micGainDesc')}
+            </Text>
+            <Slider
+              min={MIC_GAIN_MIN}
+              max={MIC_GAIN_MAX}
+              step={MIC_GAIN_STEP}
+              value={micGain}
+              onChange={setMicGain}
+              tooltip={{
+                formatter: (v) => `${v?.toFixed(1)}×`,
+              }}
+              marks={{
+                [MIC_GAIN_MIN]: `${MIC_GAIN_MIN}×`,
+                1.0: '1×',
+                [MIC_GAIN_MAX]: `${MIC_GAIN_MAX}×`,
+              }}
+              style={{ marginBottom: 0 }}
+            />
           </div>
 
           {/* Audio device selector */}

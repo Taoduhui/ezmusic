@@ -268,6 +268,8 @@ const zhCN = {
     micDenied: '麦克风权限被拒绝，请在浏览器设置中允许麦克风访问。',
     micNotFound: '未检测到麦克风设备。',
     micError: '无法访问麦克风，请检查设备连接。',
+    micGain: '麦克风增益',
+    micGainDesc: '调整麦克风输入信号的数字增益。增大可提升微弱信号的识别效果，减小可降低环境噪音干扰。',
     audioDevice: '音频输入设备',
     defaultDevice: '系统默认',
     noDevice: '未找到音频输入设备',

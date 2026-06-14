@@ -273,6 +273,8 @@ const enUS = {
     micDenied: 'Microphone access denied. Please allow microphone access in your browser settings.',
     micNotFound: 'No microphone detected.',
     micError: 'Cannot access microphone. Please check your device connection.',
+    micGain: 'Microphone Gain',
+    micGainDesc: 'Adjust digital gain for microphone input. Increase to improve detection of weak signals; decrease to reduce ambient noise interference.',
     audioDevice: 'Audio Input Device',
     defaultDevice: 'System Default',
     noDevice: 'No audio input device found',

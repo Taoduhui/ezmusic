@@ -53,6 +53,12 @@ const NOTE_END_OCTAVE = 6;
 const MIN_RMS_THRESHOLD = 0.02;
 const MIN_FREQ_HZ = 40;
 const MAX_FREQ_HZ = 2000;
+/** When a target note is selected, restrict the YIN lag search to ±0.5 octave
+ *  (≈ ±6 semitones) around the target.  This mechanically excludes the octave
+ *  below (2× period) and above (½× period) — the most common YIN octave
+ *  errors — while still allowing up to 6 semitones of detuning, which is
+ *  more than enough for any practical tuning scenario. */
+const TARGET_RANGE_OCTAVES = 0.5;
 
 // ---- diagnostic logging (module-level throttle) ----
 let detectLogCounter = 0;
@@ -133,10 +139,96 @@ const TUNABLE_NOTES = buildNoteOptions();
 const YIN_THRESHOLD = 0.15;
 
 /**
+ * Verify that the YIN period estimate is the true fundamental and not a
+ * harmonic multiple (octave / subharmonic error).
+ *
+ * Uses a two-tier check on each submultiple (τ/2, τ/3, … down to minLag):
+ *
+ *   Tier 1 – CMND comparison:
+ *     If cmnd[τ/n] < cmnd[τ], the shorter lag is a *strictly* better
+ *     period under YIN's own metric.  This catches cases where the
+ *     fundamental is already well-formed.
+ *
+ *   Tier 2 – Autocorrelation rescue:
+ *     During the attack phase of a note the fundamental's CMND may be
+ *     temporarily elevated by transient energy, even though the waveform
+ *     IS genuinely periodic at the shorter lag.  When the CMND values are
+ *     close (within 50 %) AND the shorter lag shows strong normalised
+ *     autocorrelation (≥ 0.5), we still prefer the shorter period —
+ *     this prevents the visible "jump" from subharmonic → fundamental
+ *     as the note settles.
+ */
+function verifyFundamentalPeriod(
+  cmnd: Float32Array,
+  buffer: Float32Array,
+  tauEstimate: number,
+  minLag: number,
+  maxLag: number,
+): number {
+  let bestLag = tauEstimate;
+  let bestCmnd = cmnd[tauEstimate];
+
+  // Normalised autocorrelation r(τ) ∈ [-1, 1] — computed lazily per candidate.
+  const autoCorrAt = (lag: number): number => {
+    const n = buffer.length - lag;
+    if (n <= 0) return 0;
+    let sumProd = 0;
+    let sumSq1 = 0;
+    let sumSq2 = 0;
+    for (let j = 0; j < n; j++) {
+      sumProd += buffer[j] * buffer[j + lag];
+      sumSq1 += buffer[j] * buffer[j];
+      sumSq2 += buffer[j + lag] * buffer[j + lag];
+    }
+    const denom = Math.sqrt(sumSq1 * sumSq2);
+    return denom > 1e-9 ? sumProd / denom : 0;
+  };
+
+  for (let divisor = 2; divisor <= 8; divisor++) {
+    const candidateLag = Math.round(tauEstimate / divisor);
+    if (candidateLag < minLag) break;
+    if (candidateLag > maxLag) continue;
+
+    const candidateCmnd = cmnd[candidateLag];
+
+    // Tier 1 — strictly lower CMND ⇒ objectively better period.
+    if (candidateCmnd < bestCmnd) {
+      bestCmnd = candidateCmnd;
+      bestLag = candidateLag;
+      continue;
+    }
+
+    // Tier 2 — CMND is close (within 50 %) AND the shorter lag shows strong
+    // autocorrelation, which means the waveform genuinely repeats at that
+    // shorter interval even though transient energy elevates its CMND.
+    if (candidateCmnd < bestCmnd * 1.5) {
+      const corr = autoCorrAt(candidateLag);
+      if (corr > 0.5) {
+        bestCmnd = candidateCmnd;
+        bestLag = candidateLag;
+      }
+    }
+  }
+
+  return bestLag;
+}
+
+/**
  * Detect fundamental frequency from a time-domain buffer using the YIN
  * algorithm.  Returns frequency in Hz, or null if no clear pitch is found.
+ *
+ * @param searchMinLag  Optional lower bound for the lag search (inclusive).
+ *   When provided the threshold-scan and global-minimum fallback only
+ *   consider lags ≥ this value.  Useful for excluding subharmonic periods
+ *   when a target pitch is known (tuner use-case).
+ * @param searchMaxLag  Optional upper bound for the lag search (inclusive).
  */
-function detectPitch(buffer: Float32Array, sampleRate: number): number | null {
+function detectPitch(
+  buffer: Float32Array,
+  sampleRate: number,
+  searchMinLag?: number,
+  searchMaxLag?: number,
+): number | null {
   const n = buffer.length;
 
   // ---- RMS gate -----------------------------------------------------------
@@ -147,14 +239,23 @@ function detectPitch(buffer: Float32Array, sampleRate: number): number | null {
   const rms = Math.sqrt(sumSq / n);
   if (rms < MIN_RMS_THRESHOLD) return null;
 
-  // ---- lag bounds (same as before) ---------------------------------------
-  const maxLag = Math.min(n - 1, Math.floor(sampleRate / MIN_FREQ_HZ));
-  const minLag = Math.max(1, Math.floor(sampleRate / MAX_FREQ_HZ));
+  // ---- full-range lag bounds (for CMND normalisation) --------------------
+  const fullMinLag = Math.max(1, Math.floor(sampleRate / MAX_FREQ_HZ));
+  const fullMaxLag = Math.min(n - 1, Math.floor(sampleRate / MIN_FREQ_HZ));
+
+  // ---- constrained lag bounds (for the actual pitch search) --------------
+  const minLag = searchMinLag != null
+    ? Math.max(fullMinLag, searchMinLag)
+    : fullMinLag;
+  const maxLag = searchMaxLag != null
+    ? Math.min(fullMaxLag, searchMaxLag)
+    : fullMaxLag;
 
   // ---- Step 1: squared difference function d(τ) --------------------------
+  // Compute over the FULL range so CMND normalisation has enough history.
   // d(τ) = Σ (x_j – x_{j+τ})²
-  const diff = new Float32Array(maxLag + 1);
-  for (let tau = 0; tau <= maxLag; tau++) {
+  const diff = new Float32Array(fullMaxLag + 1);
+  for (let tau = 0; tau <= fullMaxLag; tau++) {
     let sum = 0;
     for (let j = 0; j < n - tau; j++) {
       const d = buffer[j] - buffer[j + tau];
@@ -165,16 +266,18 @@ function detectPitch(buffer: Float32Array, sampleRate: number): number | null {
 
   // ---- Step 2: cumulative-mean-normalised difference d'(τ) ---------------
   // d'(0) = 1;  d'(τ) = d(τ) / ((1/τ) · Σ_{j=1}^{τ} d(j))
-  const cmnd = new Float32Array(maxLag + 1);
+  const cmnd = new Float32Array(fullMaxLag + 1);
   cmnd[0] = 1;
   let cumSum = 0;
-  for (let tau = 1; tau <= maxLag; tau++) {
+  for (let tau = 1; tau <= fullMaxLag; tau++) {
     cumSum += diff[tau];
     // Guard against division by zero (should never happen for real audio at τ>0)
     cmnd[tau] = cumSum > 0 ? (diff[tau] * tau) / cumSum : 0;
   }
 
   // ---- Step 3: absolute threshold – first deep dip -----------------------
+  // Search only within the constrained lag range so subharmonic periods
+  // (2×, 3× the true period) are mechanically excluded.
   let tauEstimate = -1;
 
   for (let tau = minLag; tau <= maxLag; tau++) {
@@ -198,7 +301,9 @@ function detectPitch(buffer: Float32Array, sampleRate: number): number | null {
     }
   }
 
-  // Fallback: no τ dipped below threshold → use global minimum of cmnd
+  // Fallback: no τ dipped below threshold → use global minimum of cmnd.
+  // Apply a secondary quality gate (2× the primary threshold) so we don't
+  // report garbage frequencies when the note attack hasn't settled yet.
   if (tauEstimate < 0) {
     let bestVal = Infinity;
     for (let tau = minLag; tau <= maxLag; tau++) {
@@ -207,9 +312,46 @@ function detectPitch(buffer: Float32Array, sampleRate: number): number | null {
         tauEstimate = tau;
       }
     }
+    // If even the global minimum has a high CMND the detection is
+    // unreliable — bail out so the UI hold logic keeps the last good
+    // value rather than snapping to a random boundary frequency.
+    if (cmnd[tauEstimate] > YIN_THRESHOLD * 2) {
+      return null;
+    }
   }
 
   if (tauEstimate <= 0) return null;
+
+  // ---- Step 3.5: verify we haven't locked onto a period multiple ----------
+  // Two-tier gate: (1) lower CMND at submultiple → strictly better;
+  // (2) close CMND + strong autocorrelation at submultiple → rescue during
+  // note attack when transient energy temporarily elevates the fundamental's CMND.
+  // Use the constrained minLag here so the verification cannot walk
+  // submultiples below the search floor — otherwise noise at very short
+  // lags (e.g. τ=26 → 1846 Hz) can win the CMND comparison.
+  const verifiedLag = verifyFundamentalPeriod(cmnd, buffer, tauEstimate, minLag, fullMaxLag);
+  if (verifiedLag !== tauEstimate) {
+    detectLogCounter++;
+    if (detectLogCounter % DETECT_LOG_EVERY_N === 0) {
+      console.log(
+        `%c🔍 YIN verifyFundamentalPeriod #${detectLogCounter}`,
+        'color:#ff6b6b;font-weight:bold',
+      );
+      console.log('  original tau:', tauEstimate);
+      console.log(
+        '  original freq:',
+        (sampleRate / tauEstimate).toFixed(2),
+        'Hz',
+      );
+      console.log('  verified tau:', verifiedLag);
+      console.log(
+        '  verified freq:',
+        (sampleRate / verifiedLag).toFixed(2),
+        'Hz',
+      );
+    }
+    tauEstimate = verifiedLag;
+  }
 
   // ---- Step 4: parabolic interpolation around the minimum ----------------
   if (tauEstimate > minLag && tauEstimate < maxLag) {
@@ -340,6 +482,16 @@ export default function Tuner() {
   // ---- diagnostic logging ----
   const logCounterRef = useRef(0);
   const LOG_EVERY_N_FRAMES = 30; // log roughly every 0.5 s at 60 fps
+  /** Burst-log the first N frames after each signal (re)onset to capture the
+   *  exact frame-by-frame behaviour that causes visible trace jumps. */
+  const BURST_LOG_FRAMES = 15;
+  const burstLogRemainingRef = useRef(0);
+  /** Snapshot of state at the start of a burst for context. */
+  const burstSnapshotRef = useRef<{
+    prevSmoothedDiff: number | null;
+    historyLen: number;
+    reason: string;
+  } | null>(null);
 
   const targetFreq = useMemo(() => {
     const note = TUNABLE_NOTES.find((n) => n.label === targetNote);
@@ -353,6 +505,10 @@ export default function Tuner() {
 
   // Smooth the Hz diff value to reduce jitter
   const hzHistoryRef = useRef<number[]>([]);
+
+  // Ref to keep targetNote label current in the rAF closure for diagnostic logs
+  const targetNoteRef = useRef(targetNote);
+  targetNoteRef.current = targetNote;
 
   const handleTargetChange = useCallback(
     (val: string) => {
@@ -373,11 +529,26 @@ export default function Tuner() {
     [],
   );
 
-  const smoothHz = useCallback((rawDiff: number): number => {
+  const smoothHz = useCallback((rawDiff: number): { value: number; didReset: boolean; prevAvg: number | null } => {
     const history = hzHistoryRef.current;
+    let didReset = false;
+    let prevAvg: number | null = null;
+
+    // Guard: if the new raw value is wildly different from the current
+    // smoothed average, the history likely contains stale values from a
+    // previous target-note selection.  Reset the history so the meter
+    // converges immediately instead of drifting over many frames.
+    if (history.length > 0) {
+      prevAvg = history.reduce((a, b) => a + b, 0) / history.length;
+      if (Math.abs(rawDiff - prevAvg) > 50) {
+        history.length = 0;
+        didReset = true;
+      }
+    }
+
     history.push(rawDiff);
     if (history.length > SMOOTH_WINDOW) history.shift();
-    return history.reduce((a, b) => a + b, 0) / history.length;
+    return { value: history.reduce((a, b) => a + b, 0) / history.length, didReset, prevAvg };
   }, []);
 
   const flushUiState = useCallback(() => {
@@ -410,9 +581,10 @@ export default function Tuner() {
       nextActiveNote = activeNoteHeld;
       nextTraceStatus = 'hold';
     } else {
-      // Hold expired
+      // Hold expired — reset everything so the next note starts fresh
       lastGoodDetectedRef.current = null;
       lastGoodHzDiffRef.current = null;
+      hzHistoryRef.current.length = 0;
     }
 
     setDetectedFreq(nextDetected);
@@ -444,7 +616,18 @@ export default function Tuner() {
     const rms = Math.sqrt(sumSq / buffer.length);
     lastGoodVolumeRef.current = Math.min(1, rms * VOLUME_SCALE);
 
-    const detected = detectPitch(buffer, analyser.context.sampleRate);
+    // Constrain the YIN lag search to ±1 octave around the target note.
+    // This mechanically excludes subharmonic periods (e.g. τ=443 for
+    // 108 Hz when the target is E4 at 329.63 Hz) that cause the visible
+    // "jump" during note attack.
+    const sampleRate = analyser.context.sampleRate;
+    const curTargetFreq = targetFreqRef.current;
+    const rangeLowHz = curTargetFreq / (2 ** TARGET_RANGE_OCTAVES);
+    const rangeHighHz = curTargetFreq * (2 ** TARGET_RANGE_OCTAVES);
+    const searchMinLag = Math.max(1, Math.floor(sampleRate / rangeHighHz));
+    const searchMaxLag = Math.min(buffer.length - 1, Math.ceil(sampleRate / rangeLowHz));
+
+    const detected = detectPitch(buffer, sampleRate, searchMinLag, searchMaxLag);
     if (detected !== null && detected >= MIN_FREQ_HZ && detected <= MAX_FREQ_HZ) {
       // Find the closest standard note for display, but measure
       // deviation from the *target* note so the meter and status
@@ -452,9 +635,50 @@ export default function Tuner() {
       const closestNote = findClosestNote(detected);
       lastGoodDetectedRef.current = parseFloat(detected.toFixed(4));
       const rawDiff = detected - targetFreqRef.current;
-      lastGoodHzDiffRef.current = parseFloat(smoothHz(rawDiff).toFixed(4));
+      const smoothResult = smoothHz(rawDiff);
+      lastGoodHzDiffRef.current = parseFloat(smoothResult.value.toFixed(4));
       lastGoodActiveNoteRef.current = closestNote.label;
+      const wasSignalLost = signalLostAtRef.current !== 0;
       signalLostAtRef.current = 0;
+
+      // ---- burst logging: capture EVERY frame for BURST_LOG_FRAMES after ----
+      // ---- signal (re)onset or a smoothing reset, to see the exact trace  ----
+      if (wasSignalLost || smoothResult.didReset) {
+        burstLogRemainingRef.current = BURST_LOG_FRAMES;
+        burstSnapshotRef.current = {
+          prevSmoothedDiff: lastGoodHzDiffRef.current,
+          historyLen: hzHistoryRef.current.length,
+          reason: wasSignalLost ? 'signal onset' : 'smoothing reset',
+        };
+      }
+
+      if (burstLogRemainingRef.current > 0) {
+        burstLogRemainingRef.current--;
+        const snap = burstSnapshotRef.current;
+        console.group(
+          `%c⚡ Burst #${BURST_LOG_FRAMES - burstLogRemainingRef.current}/${BURST_LOG_FRAMES}`,
+          'color:#ff9f43;font-weight:bold',
+        );
+        if (snap) {
+          console.log('trigger:', snap.reason);
+        }
+        console.log('frame#:', logCounterRef.current + 1);
+        console.log('detectedFreq:', detected.toFixed(4), 'Hz');
+        console.log('rawDiff:', rawDiff.toFixed(4), 'Hz');
+        console.log('smoothResult:', smoothResult.value.toFixed(4), 'Hz');
+        if (smoothResult.didReset) {
+          console.log(
+            '%c⚠ RESET: rawDiff %.2f jumped from avg %.2f (delta=%.2f > 50)',
+            'color:#ff6b6b;font-weight:bold',
+            rawDiff,
+            smoothResult.prevAvg ?? 0,
+            Math.abs(rawDiff - (smoothResult.prevAvg ?? 0)),
+          );
+        }
+        console.log('smoothed history size:', hzHistoryRef.current.length);
+        console.log('closestNote:', closestNote.label);
+        console.groupEnd();
+      }
 
       // ---- diagnostic logging (throttled) ----
       logCounterRef.current++;
@@ -477,13 +701,13 @@ export default function Tuner() {
           detected.toFixed(4),
         );
         console.log('closestNote:', closestNote.label, `(${closestNote.freq} Hz)`);
-        console.log('rawDiff (detected - closestNote):', rawDiff.toFixed(4), 'Hz');
+        console.log('rawDiff (detected - target):', rawDiff.toFixed(4), 'Hz');
         console.log(
           'smoothedDiff:',
           lastGoodHzDiffRef.current?.toFixed(4),
           'Hz',
         );
-        console.log('targetNote:', targetNote, `(${curTargetFreq} Hz)`);
+        console.log('targetNote:', targetNoteRef.current, `(${curTargetFreq} Hz)`);
         console.log('diffFromTarget:', diffFromTarget.toFixed(4), 'Hz');
         console.log(
           'centsFromClosest:',
@@ -508,7 +732,7 @@ export default function Tuner() {
         console.log('diffRangeHz:', diffRangeHz.toFixed(2));
         console.log(
           `leftAdj: ${leftAdjLabel}(${leftAdjFreq}Hz)  ` +
-            `target: ${targetNote}(${curTargetFreq}Hz)  ` +
+            `target: ${targetNoteRef.current}(${curTargetFreq}Hz)  ` +
             `rightAdj: ${rightAdjLabel}(${rightAdjFreq}Hz)`,
         );
         console.log('smoothed history size:', hzHistoryRef.current.length);
@@ -516,11 +740,12 @@ export default function Tuner() {
         console.groupEnd();
       }
     } else {
-      // Mark when signal was lost (only on first silent frame)
+      // Mark when signal was lost (only on first silent frame).
+      // Don't clear the smoothing history immediately — a brief gate
+      // closure between notes shouldn't reset the meter's convergence.
       if (signalLostAtRef.current === 0) {
         signalLostAtRef.current = performance.now();
       }
-      hzHistoryRef.current = [];
     }
 
     flushUiState();
