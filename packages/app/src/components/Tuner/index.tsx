@@ -16,18 +16,14 @@ import {
   MenuOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { triggerOpenDrawer } from '@ezmusic/shared';
+import { triggerOpenDrawer, detectPitchYIN, buildTunableNotes, findClosestNote, centsDiff, DEFAULT_MIN_FREQ_HZ, DEFAULT_MAX_FREQ_HZ, YIN_THRESHOLD, A4_FREQ, NOTE_NAMES, SEMITONE_RATIO, C0_FREQ } from '@ezmusic/shared';
+import type { TunableNote, YinOptions } from '@ezmusic/shared';
 
 const { Text } = Typography;
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-interface TunableNote {
-  label: string;
-  freq: number;
-}
 
 interface PitchTracePoint {
   id: number;
@@ -39,20 +35,21 @@ interface PitchTracePoint {
 // Constants
 // ---------------------------------------------------------------------------
 
-// ---- Note & pitch reference ----
-const A4_FREQ = 440;
-const SEMITONE_RATIO = Math.pow(2, 1 / 12);
-const C0_FREQ = A4_FREQ * Math.pow(SEMITONE_RATIO, -57); // C0 ≈ 16.35 Hz
-const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-
 // ---- Tunable note range ----
 const NOTE_START_OCTAVE = 2;
 const NOTE_END_OCTAVE = 6;
 
 // ---- Pitch detection ----
-const MIN_RMS_THRESHOLD = 0.02;
-const MIN_FREQ_HZ = 40;
-const MAX_FREQ_HZ = 2000;
+// Reduced from 0.02 to 0.005: with the 180 Hz high‑pass filter removing
+// low‑frequency noise, the remaining (periodic) signal is quieter but
+// much cleaner — YIN needs less RMS to find a good CMND dip.
+const MIN_RMS_THRESHOLD = 0.005;
+
+// ---- High-pass filter to remove low-frequency rumble that masks treble notes ----
+// Cutoff at 180 Hz: attenuates subsonic/bass noise while preserving C2 (~65 Hz)
+// enough for detection given the user reports bass input is already very high.
+// 2nd-order BiquadFilter with 12 dB/octave roll-off.
+const HIGH_PASS_CUTOFF_HZ = 180;
 /** When a target note is selected, restrict the YIN lag search to ±0.5 octave
  *  (≈ ±6 semitones) around the target.  This mechanically excludes the octave
  *  below (2× period) and above (½× period) — the most common YIN octave
@@ -69,6 +66,21 @@ const BUFFER_SIZE = 4096;
 const FFT_SIZE = 8192;
 const SMOOTHING_TIME_CONSTANT = 0;
 const VOLUME_SCALE = 5;
+
+// ---- Spectrum analysis (frequency band energy for diagnostics) ----
+// getFloatFrequencyData fills fftSize elements, but only the first fftSize/2
+// (0 … Nyquist) hold unique magnitude data; the upper half is the FFT mirror.
+// Bin width: sampleRate / fftSize Hz.  At 44100/8192 ≈ 5.38 Hz/bin.
+// Bass:   bins covering   0 –  250 Hz  → indices  0 – 46
+// Mid:    bins covering 250 – 1000 Hz  → indices 47 – 185
+// High:   bins covering 1000 – Nyquist → indices 186 – fftSize/2
+const SPECTRUM_BASS_END_HZ = 250;
+const SPECTRUM_MID_END_HZ = 1000;
+
+// ---- high-note diagnostic threshold ----
+// Log more aggressively when the target note is at or above this octave.
+const HIGH_NOTE_DIAG_OCTAVE = 5; // C5 and above trigger per-frame diagnostics
+const HIGH_NOTE_DIAG_LOG_INTERVAL = 5; // log every N frames for high notes (lower = more frequent)
 
 // ---- UI behaviour ----
 const TRACE_LIMIT = 900; // 15s × 60fps
@@ -108,120 +120,19 @@ function formatSignedHz(hzDiff: number): string {
   return `${rounded > 0 ? '+' : ''}${rounded}`;
 }
 
-/** Generate tunable notes from C2 to C6 */
-function buildNoteOptions(): TunableNote[] {
-  const notes: TunableNote[] = [];
-  for (let octave = NOTE_START_OCTAVE; octave <= NOTE_END_OCTAVE; octave++) {
-    for (let i = 0; i < 12; i++) {
-      if (octave === NOTE_END_OCTAVE && i > 0) break; // stop at C of end octave
-      const semitonesFromC0 = octave * 12 + i;
-      const freq = parseFloat((C0_FREQ * Math.pow(SEMITONE_RATIO, semitonesFromC0)).toFixed(2));
-      notes.push({ label: `${NOTE_NAMES[i]}${octave}`, freq });
-    }
-  }
-  return notes;
-}
-
-const TUNABLE_NOTES = buildNoteOptions();
+const TUNABLE_NOTES = buildTunableNotes(NOTE_START_OCTAVE, NOTE_END_OCTAVE);
 
 // ---------------------------------------------------------------------------
-// Pitch detection via YIN algorithm
+// Pitch detection — thin wrapper around shared YIN algorithm
 // ---------------------------------------------------------------------------
-// YIN (de Cheveigné & Kawahara, 2002) uses a squared difference function
-// with cumulative-mean normalisation to avoid subharmonic / octave errors.
-// It is more accurate than plain autocorrelation, especially for low
-// frequencies where fewer waveform periods fit into the analysis buffer.
+// The heavy lifting (difference function, CMND, interpolation, fundamental
+// verification) lives in @ezmusic/shared → detectPitchYIN.  This wrapper
+// adds the Tuner‑specific RMS gate and diagnostic logging.
 // ---------------------------------------------------------------------------
-
-/** Threshold for the cumulative-mean-normalised difference function.
- *  Lower values → stricter detection (may miss quiet / noisy notes).
- *  Typical range: 0.10 – 0.20. */
-const YIN_THRESHOLD = 0.15;
 
 /**
- * Verify that the YIN period estimate is the true fundamental and not a
- * harmonic multiple (octave / subharmonic error).
- *
- * Uses a two-tier check on each submultiple (τ/2, τ/3, … down to minLag):
- *
- *   Tier 1 – CMND comparison:
- *     If cmnd[τ/n] < cmnd[τ], the shorter lag is a *strictly* better
- *     period under YIN's own metric.  This catches cases where the
- *     fundamental is already well-formed.
- *
- *   Tier 2 – Autocorrelation rescue:
- *     During the attack phase of a note the fundamental's CMND may be
- *     temporarily elevated by transient energy, even though the waveform
- *     IS genuinely periodic at the shorter lag.  When the CMND values are
- *     close (within 50 %) AND the shorter lag shows strong normalised
- *     autocorrelation (≥ 0.5), we still prefer the shorter period —
- *     this prevents the visible "jump" from subharmonic → fundamental
- *     as the note settles.
- */
-function verifyFundamentalPeriod(
-  cmnd: Float32Array,
-  buffer: Float32Array,
-  tauEstimate: number,
-  minLag: number,
-  maxLag: number,
-): number {
-  let bestLag = tauEstimate;
-  let bestCmnd = cmnd[tauEstimate];
-
-  // Normalised autocorrelation r(τ) ∈ [-1, 1] — computed lazily per candidate.
-  const autoCorrAt = (lag: number): number => {
-    const n = buffer.length - lag;
-    if (n <= 0) return 0;
-    let sumProd = 0;
-    let sumSq1 = 0;
-    let sumSq2 = 0;
-    for (let j = 0; j < n; j++) {
-      sumProd += buffer[j] * buffer[j + lag];
-      sumSq1 += buffer[j] * buffer[j];
-      sumSq2 += buffer[j + lag] * buffer[j + lag];
-    }
-    const denom = Math.sqrt(sumSq1 * sumSq2);
-    return denom > 1e-9 ? sumProd / denom : 0;
-  };
-
-  for (let divisor = 2; divisor <= 8; divisor++) {
-    const candidateLag = Math.round(tauEstimate / divisor);
-    if (candidateLag < minLag) break;
-    if (candidateLag > maxLag) continue;
-
-    const candidateCmnd = cmnd[candidateLag];
-
-    // Tier 1 — strictly lower CMND ⇒ objectively better period.
-    if (candidateCmnd < bestCmnd) {
-      bestCmnd = candidateCmnd;
-      bestLag = candidateLag;
-      continue;
-    }
-
-    // Tier 2 — CMND is close (within 50 %) AND the shorter lag shows strong
-    // autocorrelation, which means the waveform genuinely repeats at that
-    // shorter interval even though transient energy elevates its CMND.
-    if (candidateCmnd < bestCmnd * 1.5) {
-      const corr = autoCorrAt(candidateLag);
-      if (corr > 0.5) {
-        bestCmnd = candidateCmnd;
-        bestLag = candidateLag;
-      }
-    }
-  }
-
-  return bestLag;
-}
-
-/**
- * Detect fundamental frequency from a time-domain buffer using the YIN
- * algorithm.  Returns frequency in Hz, or null if no clear pitch is found.
- *
- * @param searchMinLag  Optional lower bound for the lag search (inclusive).
- *   When provided the threshold-scan and global-minimum fallback only
- *   consider lags ≥ this value.  Useful for excluding subharmonic periods
- *   when a target pitch is known (tuner use-case).
- * @param searchMaxLag  Optional upper bound for the lag search (inclusive).
+ * Detect pitch with Tuner‑specific RMS gating and diagnostics.
+ * Delegates the YIN algorithm to {@link detectPitchYIN}.
  */
 function detectPitch(
   buffer: Float32Array,
@@ -231,213 +142,71 @@ function detectPitch(
 ): number | null {
   const n = buffer.length;
 
-  // ---- RMS gate -----------------------------------------------------------
+  // ---- RMS gate (Tuner‑specific threshold) --------------------------------
   let sumSq = 0;
   for (let i = 0; i < n; i++) {
     sumSq += buffer[i] * buffer[i];
   }
   const rms = Math.sqrt(sumSq / n);
-  if (rms < MIN_RMS_THRESHOLD) return null;
-
-  // ---- full-range lag bounds (for CMND normalisation) --------------------
-  const fullMinLag = Math.max(1, Math.floor(sampleRate / MAX_FREQ_HZ));
-  const fullMaxLag = Math.min(n - 1, Math.floor(sampleRate / MIN_FREQ_HZ));
-
-  // ---- constrained lag bounds (for the actual pitch search) --------------
-  const minLag = searchMinLag != null
-    ? Math.max(fullMinLag, searchMinLag)
-    : fullMinLag;
-  const maxLag = searchMaxLag != null
-    ? Math.min(fullMaxLag, searchMaxLag)
-    : fullMaxLag;
-
-  // ---- Step 1: squared difference function d(τ) --------------------------
-  // Compute over the FULL range so CMND normalisation has enough history.
-  // d(τ) = Σ (x_j – x_{j+τ})²
-  const diff = new Float32Array(fullMaxLag + 1);
-  for (let tau = 0; tau <= fullMaxLag; tau++) {
-    let sum = 0;
-    for (let j = 0; j < n - tau; j++) {
-      const d = buffer[j] - buffer[j + tau];
-      sum += d * d;
-    }
-    diff[tau] = sum;
-  }
-
-  // ---- Step 2: cumulative-mean-normalised difference d'(τ) ---------------
-  // d'(0) = 1;  d'(τ) = d(τ) / ((1/τ) · Σ_{j=1}^{τ} d(j))
-  const cmnd = new Float32Array(fullMaxLag + 1);
-  cmnd[0] = 1;
-  let cumSum = 0;
-  for (let tau = 1; tau <= fullMaxLag; tau++) {
-    cumSum += diff[tau];
-    // Guard against division by zero (should never happen for real audio at τ>0)
-    cmnd[tau] = cumSum > 0 ? (diff[tau] * tau) / cumSum : 0;
-  }
-
-  // ---- Step 3: absolute threshold – first deep dip -----------------------
-  // Search only within the constrained lag range so subharmonic periods
-  // (2×, 3× the true period) are mechanically excluded.
-  let tauEstimate = -1;
-
-  for (let tau = minLag; tau <= maxLag; tau++) {
-    if (cmnd[tau] < YIN_THRESHOLD) {
-      // Verify this is a local minimum in a small neighbourhood
-      // so we don't latch onto a transient downward slope.
-      const halfWindow = Math.max(1, Math.floor(tau * 0.04));
-      const lo = Math.max(minLag, tau - halfWindow);
-      const hi = Math.min(maxLag, tau + halfWindow);
-      let isLocalMin = true;
-      for (let k = lo; k <= hi; k++) {
-        if (cmnd[k] < cmnd[tau]) {
-          isLocalMin = false;
-          break;
-        }
-      }
-      if (isLocalMin) {
-        tauEstimate = tau;
-        break;
-      }
-    }
-  }
-
-  // Fallback: no τ dipped below threshold → use global minimum of cmnd.
-  // Apply a secondary quality gate (2× the primary threshold) so we don't
-  // report garbage frequencies when the note attack hasn't settled yet.
-  if (tauEstimate < 0) {
-    let bestVal = Infinity;
-    for (let tau = minLag; tau <= maxLag; tau++) {
-      if (cmnd[tau] < bestVal) {
-        bestVal = cmnd[tau];
-        tauEstimate = tau;
-      }
-    }
-    // If even the global minimum has a high CMND the detection is
-    // unreliable — bail out so the UI hold logic keeps the last good
-    // value rather than snapping to a random boundary frequency.
-    if (cmnd[tauEstimate] > YIN_THRESHOLD * 2) {
-      return null;
-    }
-  }
-
-  if (tauEstimate <= 0) return null;
-
-  // ---- Step 3.5: verify we haven't locked onto a period multiple ----------
-  // Two-tier gate: (1) lower CMND at submultiple → strictly better;
-  // (2) close CMND + strong autocorrelation at submultiple → rescue during
-  // note attack when transient energy temporarily elevates the fundamental's CMND.
-  // Use the constrained minLag here so the verification cannot walk
-  // submultiples below the search floor — otherwise noise at very short
-  // lags (e.g. τ=26 → 1846 Hz) can win the CMND comparison.
-  const verifiedLag = verifyFundamentalPeriod(cmnd, buffer, tauEstimate, minLag, fullMaxLag);
-  if (verifiedLag !== tauEstimate) {
+  if (rms < MIN_RMS_THRESHOLD) {
     detectLogCounter++;
     if (detectLogCounter % DETECT_LOG_EVERY_N === 0) {
       console.log(
-        `%c🔍 YIN verifyFundamentalPeriod #${detectLogCounter}`,
-        'color:#ff6b6b;font-weight:bold',
-      );
-      console.log('  original tau:', tauEstimate);
-      console.log(
-        '  original freq:',
-        (sampleRate / tauEstimate).toFixed(2),
-        'Hz',
-      );
-      console.log('  verified tau:', verifiedLag);
-      console.log(
-        '  verified freq:',
-        (sampleRate / verifiedLag).toFixed(2),
-        'Hz',
+        `%c🔇 RMS gate: ${rms.toFixed(6)} < ${MIN_RMS_THRESHOLD} — returning null`,
+        'color:#ff6b6b',
       );
     }
-    tauEstimate = verifiedLag;
+    return null;
   }
 
-  // ---- Step 4: parabolic interpolation around the minimum ----------------
-  if (tauEstimate > minLag && tauEstimate < maxLag) {
-    const y0 = cmnd[tauEstimate];
-    const ym = cmnd[tauEstimate - 1];
-    const yp = cmnd[tauEstimate + 1];
-    const denom = ym - 2 * y0 + yp;
-    if (denom > 0) {
-      // denom > 0 ensures the parabola opens upward (true minimum)
-      const delta = 0.5 * (ym - yp) / denom;
-      if (Math.abs(delta) < 1) {
-        const refinedLag = tauEstimate + delta;
+  // ---- delegate to shared YIN --------------------------------------------
+  const yinOpts: YinOptions = {
+    yinThreshold: YIN_THRESHOLD,
+    searchMinLag,
+    searchMaxLag,
+  };
+  const result = detectPitchYIN(buffer, sampleRate, yinOpts);
 
-        // ---- diagnostic logging (throttled) ----
-        detectLogCounter++;
-        if (detectLogCounter % DETECT_LOG_EVERY_N === 0) {
-          console.log(
-            `%c🔍 YIN detectPitch #${detectLogCounter}`,
-            'color:#f5a623;font-weight:bold',
-          );
-          console.log('  sampleRate:', sampleRate);
-          console.log('  tauEstimate:', tauEstimate);
-          console.log('  cmnd at tau:', y0.toFixed(6));
-          console.log(
-            `  cmnd neighbours: tau-1=${ym.toFixed(6)}  tau+1=${yp.toFixed(6)}`,
-          );
-          console.log(
-            `  delta: ${delta.toFixed(4)}  (denom=${denom.toFixed(6)})`,
-          );
-          console.log('  refinedLag:', refinedLag.toFixed(4));
-          console.log(
-            '  freq (no interp):',
-            (sampleRate / tauEstimate).toFixed(4),
-            'Hz',
-          );
-          console.log(
-            '  freq (interpolated):',
-            (sampleRate / refinedLag).toFixed(4),
-            'Hz',
-          );
-        }
-
-        return sampleRate / refinedLag;
-      }
+  if (result === null) {
+    // The shared function already handles the CMND quality gate internally.
+    // Log a throttled note so the console shows when YIN rejects a frame
+    // even after the RMS gate passed.
+    detectLogCounter++;
+    if (detectLogCounter % DETECT_LOG_EVERY_N === 0) {
+      const expectedLag = Math.round(sampleRate / (searchMinLag != null
+        ? sampleRate / ((searchMinLag + (searchMaxLag ?? searchMinLag)) / 2)
+        : 440));
+      console.log(
+        `%c📉 YIN reject — RMS passed (${rms.toFixed(5)} ≥ ${MIN_RMS_THRESHOLD}) ` +
+        `but CMND quality gate failed. searchLag=[${searchMinLag ?? '-'},${searchMaxLag ?? '-'}]`,
+        'color:#ff6b6b',
+      );
     }
+    return null;
   }
 
-  // ---- diagnostic logging (throttled, fallback path) ----
+  // ---- diagnostic logging (throttled) ------------------------------------
   detectLogCounter++;
   if (detectLogCounter % DETECT_LOG_EVERY_N === 0) {
     console.log(
-      `%c🔍 YIN detectPitch #${detectLogCounter} (fallback, no interpolation)`,
+      `%c🔍 YIN detectPitch #${detectLogCounter}`,
       'color:#f5a623;font-weight:bold',
     );
     console.log('  sampleRate:', sampleRate);
-    console.log('  tauEstimate:', tauEstimate);
-    console.log('  freq:', (sampleRate / tauEstimate).toFixed(4), 'Hz');
+    console.log('  tau:', result.tau.toFixed(4));
+    console.log('  cmnd at tau:', result.cmndValue.toFixed(6));
+    console.log('  freq:', result.freq.toFixed(4), 'Hz');
   }
 
-  return sampleRate / tauEstimate;
+  return result.freq;
 }
 
-// ---------------------------------------------------------------------------
-// Cents calculation
-// ---------------------------------------------------------------------------
-
-/** Calculate cents difference between detected and target frequency. */
-function centsDiff(detected: number, target: number): number {
-  return 1200 * Math.log2(detected / target);
-}
-
-// ---------------------------------------------------------------------------
-// Closest note finder
-// ---------------------------------------------------------------------------
-
-function findClosestNote(freq: number): TunableNote {
-  let best = TUNABLE_NOTES[0];
-  let bestCents = Math.abs(centsDiff(freq, best.freq));
-  for (const note of TUNABLE_NOTES) {
-    const c = Math.abs(centsDiff(freq, note.freq));
-    if (c < bestCents) {
-      bestCents = c;
-      best = note;
-    }
-  }
-  return best;
+/**
+ * Find the closest standard note to a detected frequency.
+ * Wraps the shared {@link findClosestNote} with the Tuner's note list.
+ */
+function findClosestNoteForTuner(freq: number): TunableNote {
+  return findClosestNote(freq, TUNABLE_NOTES);
 }
 
 // ---------------------------------------------------------------------------
@@ -465,10 +234,15 @@ export default function Tuner() {
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
+  const highPassRef = useRef<BiquadFilterNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const animFrameRef = useRef<number>(0);
   const bufferRef = useRef<Float32Array<ArrayBuffer>>(
     new Float32Array(new ArrayBuffer(BUFFER_SIZE * Float32Array.BYTES_PER_ELEMENT)),
+  );
+  // Frequency‑domain buffer for spectral diagnostics
+  const freqDataRef = useRef<Float32Array<ArrayBuffer>>(
+    new Float32Array(new ArrayBuffer(FFT_SIZE * Float32Array.BYTES_PER_ELEMENT)),
   );
 
   // ---- hold: keep last reading alive for a grace period when signal drops ----
@@ -608,13 +382,44 @@ export default function Tuner() {
     const buffer = bufferRef.current;
     analyser.getFloatTimeDomainData(buffer);
 
-    // Compute volume (RMS)
+    // Compute volume (RMS) and peak amplitude
     let sumSq = 0;
+    let peakAbs = 0;
     for (let i = 0; i < buffer.length; i++) {
-      sumSq += buffer[i] * buffer[i];
+      const v = buffer[i];
+      sumSq += v * v;
+      const av = Math.abs(v);
+      if (av > peakAbs) peakAbs = av;
     }
     const rms = Math.sqrt(sumSq / buffer.length);
     lastGoodVolumeRef.current = Math.min(1, rms * VOLUME_SCALE);
+
+    // ---- spectral energy per band (for diagnostics) ----
+    const freqData = freqDataRef.current;
+    analyser.getFloatFrequencyData(freqData);
+    // getFloatFrequencyData fills all fftSize bins, but only the first
+    // fftSize/2 (0 … Nyquist) contain unique magnitude data.
+    // Bin width: sampleRate / fftSize Hz.
+    const nyquistBinCount = analyser.fftSize / 2;
+    const binWidthHz = analyser.context.sampleRate / analyser.fftSize;
+    const bassEndBin = Math.floor(SPECTRUM_BASS_END_HZ / binWidthHz);
+    const midEndBin = Math.floor(SPECTRUM_MID_END_HZ / binWidthHz);
+    // Convert dB to linear power per bin, then sum (first half only)
+    let bassPowerLin = 0, midPowerLin = 0, highPowerLin = 0;
+    for (let i = 0; i < nyquistBinCount; i++) {
+      // freqData[i] is in dB (max 0 dBFS). Convert to linear power: 10^(dB/10)
+      // Guard: -Infinity or very negative values → 0 power.
+      const db = freqData[i];
+      if (db < -120) continue; // noise floor, skip
+      const lin = Math.pow(10, db / 10);
+      if (i <= bassEndBin) bassPowerLin += lin;
+      else if (i <= midEndBin) midPowerLin += lin;
+      else highPowerLin += lin;
+    }
+    const totalBandPower = bassPowerLin + midPowerLin + highPowerLin;
+    const bassRatio = totalBandPower > 0 ? bassPowerLin / totalBandPower : 0;
+    const midRatio = totalBandPower > 0 ? midPowerLin / totalBandPower : 0;
+    const highRatio = totalBandPower > 0 ? highPowerLin / totalBandPower : 0;
 
     // Constrain the YIN lag search to ±1 octave around the target note.
     // This mechanically excludes subharmonic periods (e.g. τ=443 for
@@ -628,11 +433,43 @@ export default function Tuner() {
     const searchMaxLag = Math.min(buffer.length - 1, Math.ceil(sampleRate / rangeLowHz));
 
     const detected = detectPitch(buffer, sampleRate, searchMinLag, searchMaxLag);
-    if (detected !== null && detected >= MIN_FREQ_HZ && detected <= MAX_FREQ_HZ) {
+
+    // ---- high‑note diagnostic: log on every detection miss for notes ≥ C5 ----
+    const curTargetOctave = parseInt(targetNoteRef.current.match(/\d+$/)?.[0] ?? '0', 10);
+    const isHighNote = curTargetOctave >= HIGH_NOTE_DIAG_OCTAVE;
+    if (isHighNote) {
+      logCounterRef.current++;
+      if (detected === null || logCounterRef.current % HIGH_NOTE_DIAG_LOG_INTERVAL === 0) {
+        const expectedLag = Math.round(sampleRate / curTargetFreq);
+        console.group(
+          `%c🔬 High-Note Diag #${logCounterRef.current} target=${targetNoteRef.current} (${curTargetFreq} Hz)`,
+          detected === null ? 'color:#ff6b6b;font-weight:bold' : 'color:#68f0a5',
+        );
+        console.log('RMS:', rms.toFixed(6), '| threshold:', MIN_RMS_THRESHOLD.toFixed(2), '| passes:', rms >= MIN_RMS_THRESHOLD);
+        console.log('peak:', peakAbs.toFixed(6), '| crest factor:', rms > 0 ? (peakAbs / rms).toFixed(2) : '∞');
+        console.log('volume (UI):', (rms * VOLUME_SCALE).toFixed(4));
+        console.log('band power — bass:', (bassRatio * 100).toFixed(1) + '%',
+          'mid:', (midRatio * 100).toFixed(1) + '%',
+          'high:', (highRatio * 100).toFixed(1) + '%');
+        console.log('searchMinLag:', searchMinLag, '| searchMaxLag:', searchMaxLag,
+          '| expectedLag:', expectedLag,
+          '| expectedFreq:', (sampleRate / expectedLag).toFixed(2), 'Hz');
+        if (detected !== null) {
+          console.log('%cdetected: %c' + detected.toFixed(2) + ' Hz',
+            '', 'color:#f5a623;font-weight:bold');
+        } else {
+          console.log('%c❌ detectPitch returned NULL — signal lost or pitch undetectable',
+            'color:#ff6b6b;font-weight:bold');
+        }
+        console.groupEnd();
+      }
+    }
+
+    if (detected !== null && detected >= DEFAULT_MIN_FREQ_HZ && detected <= DEFAULT_MAX_FREQ_HZ) {
       // Find the closest standard note for display, but measure
       // deviation from the *target* note so the meter and status
       // reflect how far the played pitch is from the intended note.
-      const closestNote = findClosestNote(detected);
+      const closestNote = findClosestNoteForTuner(detected);
       lastGoodDetectedRef.current = parseFloat(detected.toFixed(4));
       const rawDiff = detected - targetFreqRef.current;
       const smoothResult = smoothHz(rawDiff);
@@ -745,6 +582,13 @@ export default function Tuner() {
       // closure between notes shouldn't reset the meter's convergence.
       if (signalLostAtRef.current === 0) {
         signalLostAtRef.current = performance.now();
+        // On first silent frame, emit a one‑shot diagnostic explaining why
+        console.log(
+          `%c🔇 Signal lost — RMS: ${rms.toFixed(6)} (threshold: ${MIN_RMS_THRESHOLD}), ` +
+          `peak: ${peakAbs.toFixed(6)}, ` +
+          `band power bass/mid/high: ${(bassRatio*100).toFixed(0)}/${(midRatio*100).toFixed(0)}/${(highRatio*100).toFixed(0)}%`,
+          'color:#ff6b6b',
+        );
       }
     }
 
@@ -799,10 +643,21 @@ export default function Tuner() {
       audioCtxRef.current = audioCtx;
 
       const source = audioCtx.createMediaStreamSource(stream);
+
+      // High‑pass filter: attenuates low‑frequency noise (room rumble,
+      // handling noise, proximity effect) that masks treble fundamentals.
+      // 2nd‑order BiquadFilter, 12 dB/octave roll‑off.
+      const highPass = audioCtx.createBiquadFilter();
+      highPass.type = 'highpass';
+      highPass.frequency.value = HIGH_PASS_CUTOFF_HZ;
+      highPass.Q.value = 0.707; // Butterworth — maximally flat passband
+      highPassRef.current = highPass;
+
       const analyser = audioCtx.createAnalyser();
       analyser.fftSize = FFT_SIZE;
       analyser.smoothingTimeConstant = SMOOTHING_TIME_CONSTANT;
-      source.connect(analyser);
+      source.connect(highPass);
+      highPass.connect(analyser);
       // Don't connect to destination — we don't want feedback
       analyserRef.current = analyser;
 
@@ -831,6 +686,7 @@ export default function Tuner() {
     audioCtxRef.current?.close();
     audioCtxRef.current = null;
     analyserRef.current = null;
+    highPassRef.current = null;
     setIsListening(false);
     setDetectedFreq(null);
     setHzDiff(null);

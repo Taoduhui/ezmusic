@@ -23,7 +23,14 @@ import {
   triggerOpenDrawer,
   playTonicWalk,
   buildTonicWalkSequence,
+  detectPitchYIN,
+  buildTunableNotes,
+  findClosestNote,
+  YIN_THRESHOLD,
+  DEFAULT_MIN_FREQ_HZ,
+  DEFAULT_MAX_FREQ_HZ,
 } from '@ezmusic/shared';
+import type { TunableNote, YinOptions } from '@ezmusic/shared';
 import { useSRDrill } from '@ezmusic/spaced-repetition';
 import { StaffDisplay } from '@ezmusic/chapter-staff-notation';
 
@@ -67,43 +74,33 @@ const WALK_GAP_MS = 75;
 // Constants — pitch detection
 // ---------------------------------------------------------------------------
 
-const A4_FREQ = 440;
-const SEMITONE_RATIO = Math.pow(2, 1 / 12);
-const C0_FREQ = A4_FREQ * Math.pow(SEMITONE_RATIO, -57);
+const TUNABLE_NOTES: TunableNote[] = buildTunableNotes(1, 6);
 
-const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-
-/** Build tunable note references from C1 to C6. */
-function buildTunableNotes(): { label: string; freq: number }[] {
-  const notes: { label: string; freq: number }[] = [];
-  for (let octave = 1; octave <= 6; octave++) {
-    for (let i = 0; i < 12; i++) {
-      if (octave === 6 && i > 0) break;
-      const semitonesFromC0 = octave * 12 + i;
-      const freq = parseFloat(
-        (C0_FREQ * Math.pow(SEMITONE_RATIO, semitonesFromC0)).toFixed(2),
-      );
-      notes.push({ label: `${NOTE_NAMES[i]}${octave}`, freq });
-    }
-  }
-  return notes;
-}
-
-const TUNABLE_NOTES = buildTunableNotes();
-
-// ---- YIN pitch detection ----
-
-const YIN_THRESHOLD = 0.15;
-/** Hard minimum — signal must be at least this strong regardless of noise floor. */
-const RMS_GATE_MIN = 0.01;
+/** Hard minimum — signal must be at least this strong regardless of noise floor.
+ *  Set to 0.002: after the 180 Hz high-pass filter removes bass energy,
+ *  treble-note sustain on guitar can be as low as 0.002–0.004 RMS.
+ *  False-trigger risk is minimal because the noise-floor-based threshold
+ *  (3× ambient, typically ≥ 0.003) still dominates in quiet environments. */
+const RMS_GATE_MIN = 0.002;
 /** Signal must exceed noiseFloor × this to open the gate. */
 const NOISE_MULTIPLIER = 3;
-/** Noise-floor tracking: slow-rise time constant (per sample, ~2 s at 60 fps). */
+/** Noise-floor tracking: slow-rise time constant (per sample, ~2 s at 60 fps).
+ *  Only applied while the gate is CLOSED so the note's own attack doesn't
+ *  inflate the floor and reject its own sustain phase. */
 const NOISE_ATTACK_COEFF = 0.008;
 /** Noise-floor tracking: fast-fall time constant (~0.3 s at 60 fps). */
 const NOISE_RELEASE_COEFF = 0.05;
-const MIN_FREQ_HZ = 40;
-const MAX_FREQ_HZ = 2000;
+
+// ---- High-pass filter to remove low-frequency rumble that masks treble notes ----
+// 180 Hz 2nd-order BiquadFilter (Butterworth, Q=0.707, 12 dB/octave).
+// This removes subsonic noise and handling rumble while preserving C2 and above.
+const HIGH_PASS_CUTOFF_HZ = 180;
+// When a target note is known, constrain the YIN lag search around the
+// expected period (τ).  We use a ratio rather than a fixed semitone window
+// so that the octave-below subharmonic (2×τ) is ALWAYS mechanically excluded
+// regardless of sample rate.  A ratio of 1.8× allows ~10 semitones of flat
+// detuning while keeping the search ceiling safely below 2×τ.
+const TARGET_TAU_RATIO = 1.8;
 
 // ---- Audio processing ----
 
@@ -194,88 +191,58 @@ function buildFretOptions(): { value: number; label: string }[] {
 const FRET_OPTIONS = buildFretOptions();
 
 // ---------------------------------------------------------------------------
-// Helpers — pitch detection
+// Helpers — pitch detection (thin wrappers around shared YIN algorithm)
 // ---------------------------------------------------------------------------
 
-/** YIN pitch detection. Returns frequency in Hz or null.
- *  NOTE: RMS gating is handled by the caller (hysteresis gate in processAudio). */
-function detectPitch(buffer: Float32Array, sampleRate: number): number | null {
-  const n = buffer.length;
+/**
+ * Detect pitch with SightReading‑specific parameters.
+ * RMS gating is handled by the caller (hysteresis gate in processAudio).
+ * Delegates the YIN algorithm to {@link detectPitchYIN}.
+ *
+ * When `targetNoteLabel` is provided, the YIN lag search is constrained to
+ * ±6 semitones around the target frequency.  This mechanically excludes
+ * subharmonic lock (e.g. C5 → G#2, a 2.3‑octave drop) while tolerating
+ * extreme detuning / pitch bends.
+ */
+function detectPitch(
+  buffer: Float32Array,
+  sampleRate: number,
+  targetNoteLabel?: string | null,
+): number | null {
+  const yinOpts: YinOptions = {
+    // Use a more permissive threshold (0.25 vs default 0.15) because
+    // SightReading has a target-constrained search range — the narrower
+    // lag window means CMND normalisation has less history, which can
+    // elevate CMND values.  The quality gate (2× = 0.50) still guards
+    // against garbage detections.
+    yinThreshold: 0.25,
+    minFreqHz: DEFAULT_MIN_FREQ_HZ,
+    maxFreqHz: DEFAULT_MAX_FREQ_HZ,
+    debug: true,
+  };
 
-  const maxLag = Math.min(n - 1, Math.floor(sampleRate / MIN_FREQ_HZ));
-  const minLag = Math.max(1, Math.floor(sampleRate / MAX_FREQ_HZ));
-
-  // Step 1: squared difference function
-  const diff = new Float32Array(maxLag + 1);
-  for (let tau = 0; tau <= maxLag; tau++) {
-    let sum = 0;
-    for (let j = 0; j < n - tau; j++) {
-      const d = buffer[j] - buffer[j + tau];
-      sum += d * d;
-    }
-    diff[tau] = sum;
-  }
-
-  // Step 2: cumulative-mean-normalised difference
-  const cmnd = new Float32Array(maxLag + 1);
-  cmnd[0] = 1;
-  let cumSum = 0;
-  for (let tau = 1; tau <= maxLag; tau++) {
-    cumSum += diff[tau];
-    cmnd[tau] = cumSum > 0 ? (diff[tau] * tau) / cumSum : 0;
-  }
-
-  // Step 3: absolute threshold — first deep dip
-  let tauEstimate = -1;
-  for (let tau = minLag; tau <= maxLag; tau++) {
-    if (cmnd[tau] < YIN_THRESHOLD) {
-      const halfWindow = Math.max(1, Math.floor(tau * 0.04));
-      const lo = Math.max(minLag, tau - halfWindow);
-      const hi = Math.min(maxLag, tau + halfWindow);
-      let isLocalMin = true;
-      for (let k = lo; k <= hi; k++) {
-        if (cmnd[k] < cmnd[tau]) { isLocalMin = false; break; }
-      }
-      if (isLocalMin) { tauEstimate = tau; break; }
+  if (targetNoteLabel) {
+    const target = TUNABLE_NOTES.find((n) => n.label === targetNoteLabel);
+    if (target) {
+      // Constrain the lag search around the EXPECTED period using a fixed
+      // ratio.  This mechanically excludes the octave-below subharmonic
+      // (2×τ) while allowing generous detuning headroom (~±10 semitones).
+      const expectedTau = sampleRate / target.freq;
+      yinOpts.searchMaxLag = Math.floor(expectedTau * TARGET_TAU_RATIO);
+      yinOpts.searchMinLag = Math.ceil(expectedTau / TARGET_TAU_RATIO);
     }
   }
 
-  // Fallback: global minimum of cmnd
-  if (tauEstimate < 0) {
-    let bestVal = Infinity;
-    for (let tau = minLag; tau <= maxLag; tau++) {
-      if (cmnd[tau] < bestVal) { bestVal = cmnd[tau]; tauEstimate = tau; }
-    }
-  }
-
-  if (tauEstimate <= 0) return null;
-
-  // Step 4: parabolic interpolation
-  if (tauEstimate > minLag && tauEstimate < maxLag) {
-    const y0 = cmnd[tauEstimate];
-    const ym = cmnd[tauEstimate - 1];
-    const yp = cmnd[tauEstimate + 1];
-    const denom = ym - 2 * y0 + yp;
-    if (denom > 0) {
-      const delta = 0.5 * (ym - yp) / denom;
-      if (Math.abs(delta) < 1) {
-        return sampleRate / (tauEstimate + delta);
-      }
-    }
-  }
-
-  return sampleRate / tauEstimate;
+  const result = detectPitchYIN(buffer, sampleRate, yinOpts);
+  return result?.freq ?? null;
 }
 
-/** Find the closest standard note to a given frequency. */
-function findClosestNote(freq: number): { label: string; freq: number } {
-  let best = TUNABLE_NOTES[0];
-  let bestCents = Math.abs(1200 * Math.log2(freq / best.freq));
-  for (const note of TUNABLE_NOTES) {
-    const c = Math.abs(1200 * Math.log2(freq / note.freq));
-    if (c < bestCents) { bestCents = c; best = note; }
-  }
-  return best;
+/**
+ * Find the closest standard note to a detected frequency.
+ * Wraps the shared {@link findClosestNote} with the SightReading note list.
+ */
+function findClosestNoteForSR(freq: number): TunableNote {
+  return findClosestNote(freq, TUNABLE_NOTES);
 }
 
 // ---------------------------------------------------------------------------
@@ -676,6 +643,7 @@ export default function SightReading() {
   const bufferRef = useRef<Float32Array<ArrayBuffer>>(
     new Float32Array(new ArrayBuffer(BUFFER_SIZE * Float32Array.BYTES_PER_ELEMENT)),
   );
+  const highPassRef = useRef<BiquadFilterNode | null>(null);
 
   // Stability tracking
   const stableFramesRef = useRef(0);
@@ -778,6 +746,10 @@ export default function SightReading() {
 
   // Adaptive noise floor — tracks ambient noise level, rising slowly & falling quickly
   const noiseFloorRef = useRef(0.001);
+  // Track whether the gate was open on the PREVIOUS frame.
+  // When true, noise-floor updates are frozen to prevent the note's own
+  // attack from inflating the floor and rejecting its quieter sustain phase.
+  const gateWasOpenRef = useRef(false);
 
   const processAudio = useCallback(() => {
     const analyser = analyserRef.current;
@@ -800,19 +772,25 @@ export default function SightReading() {
 
     // ── Adaptive noise gate ──
     // Noise floor tracks ambient level: slow to rise, fast to fall.
-    // This prevents brief loud notes from inflating the floor permanently
-    // while quickly re-adapting when the environment gets quieter.
+    // CRITICAL: only update the noise floor when the gate was CLOSED on the
+    // previous frame.  Otherwise a note's own attack transient inflates the
+    // floor, which then rejects the (quieter) sustain phase — the note
+    // "self-rejects" after a single frame of detection.
     const prevNoiseFloor = noiseFloorRef.current;
-    if (rms > prevNoiseFloor) {
-      noiseFloorRef.current += (rms - prevNoiseFloor) * NOISE_ATTACK_COEFF;
-    } else {
-      noiseFloorRef.current += (rms - prevNoiseFloor) * NOISE_RELEASE_COEFF;
+    const prevGateOpen = gateWasOpenRef.current;
+    if (!prevGateOpen) {
+      if (rms > prevNoiseFloor) {
+        noiseFloorRef.current += (rms - prevNoiseFloor) * NOISE_ATTACK_COEFF;
+      } else {
+        noiseFloorRef.current += (rms - prevNoiseFloor) * NOISE_RELEASE_COEFF;
+      }
+      // Clamp noise floor to a sane minimum so it can't go to zero
+      if (noiseFloorRef.current < 0.0005) noiseFloorRef.current = 0.0005;
     }
-    // Clamp noise floor to a sane minimum so it can't go to zero
-    if (noiseFloorRef.current < 0.0005) noiseFloorRef.current = 0.0005;
 
     const threshold = Math.max(RMS_GATE_MIN, noiseFloorRef.current * NOISE_MULTIPLIER);
     const gateOpen = rms >= threshold;
+    gateWasOpenRef.current = gateOpen;
     const frameN = debugFrameRef.current++;
 
     // Periodic diagnostic
@@ -830,10 +808,15 @@ export default function SightReading() {
       return;
     }
 
-    const detected = detectPitch(buffer, analyser.context.sampleRate);
+    // Log YIN input context on every frame so YIN:dbg lines can be correlated
+    // with gate state.  Use a brief log to keep the console readable.
+    if (frameN % 5 === 0) {
+      console.log(`[SR:yin-call] f=${frameN} rms=${rms.toFixed(4)} gate=open → calling YIN`);
+    }
+    const detected = detectPitch(buffer, analyser.context.sampleRate, currentNoteRef.current);
 
-    if (detected !== null && detected >= MIN_FREQ_HZ && detected <= MAX_FREQ_HZ) {
-      const closest = findClosestNote(detected);
+    if (detected !== null && detected >= DEFAULT_MIN_FREQ_HZ && detected <= DEFAULT_MAX_FREQ_HZ) {
+      const closest = findClosestNoteForSR(detected);
       setDetectedFreq(parseFloat(detected.toFixed(2)));
       setDetectedNote(closest.label);
 
@@ -906,10 +889,20 @@ export default function SightReading() {
       audioCtxRef.current = audioCtx;
 
       const source = audioCtx.createMediaStreamSource(stream);
+
+      // High-pass filter: remove low-frequency rumble that masks treble notes.
+      // 2nd-order BiquadFilter (Butterworth, Q=0.707, 12 dB/octave).
+      const highPass = audioCtx.createBiquadFilter();
+      highPass.type = 'highpass';
+      highPass.frequency.value = HIGH_PASS_CUTOFF_HZ;
+      highPass.Q.value = 0.707;
+      highPassRef.current = highPass;
+
       const analyser = audioCtx.createAnalyser();
       analyser.fftSize = FFT_SIZE;
       analyser.smoothingTimeConstant = SMOOTHING_TIME_CONSTANT;
-      source.connect(analyser);
+      source.connect(highPass);
+      highPass.connect(analyser);
       analyserRef.current = analyser;
 
       setIsListening(true);
@@ -941,6 +934,7 @@ export default function SightReading() {
     audioCtxRef.current?.close();
     audioCtxRef.current = null;
     analyserRef.current = null;
+    highPassRef.current = null;
     setIsListening(false);
     setDetectedNote(null);
     setDetectedFreq(null);
@@ -949,6 +943,7 @@ export default function SightReading() {
     stableFramesRef.current = 0;
     lastDetectedNoteRef.current = null;
     noiseFloorRef.current = 0.001;
+    gateWasOpenRef.current = false;
   }, []);
 
   // ---- Answer handling ----
