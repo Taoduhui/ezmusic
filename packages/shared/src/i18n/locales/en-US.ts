@@ -279,6 +279,7 @@ const enUS = {
     defaultDevice: 'System Default',
     noDevice: 'No audio input device found',
     deviceLockedHint: 'Device cannot be changed while listening. Please stop first.',
+    skip: 'Skip',
   },
   tuner: {
     title: 'Tuner',

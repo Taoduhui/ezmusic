@@ -274,6 +274,7 @@ const zhCN = {
     defaultDevice: '系统默认',
     noDevice: '未找到音频输入设备',
     deviceLockedHint: '聆听中无法切换设备，请先停止聆听。',
+    skip: '跳过',
   },
   tuner: {
     title: '调音器',

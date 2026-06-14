@@ -966,54 +966,51 @@ export default function SightReading() {
         autoAdvanceRef.current = null;
       }
 
-      setAnswered(true);
-      setIsCorrect(correct);
-      setSessionTotal((n) => n + 1);
-
       // Record review in spaced-repetition system
       sr.recordReview(currentNote, correct);
 
-      // Always play the tonic walk as feedback
-      void playTonicWalk(playNote, currentNote, {
-        startNoteDuration: NOTE_PLAY_DURATION,
-        noteDuration: WALK_NOTE_DURATION,
-      });
-
       if (correct) {
+        setAnswered(true);
+        setIsCorrect(true);
+        setSessionTotal((n) => n + 1);
         setSessionCorrect((n) => n + 1);
         setStreak((n) => n + 1);
         setMatchState('correct');
+
+        // Play the tonic walk as feedback for correct answers
+        void playTonicWalk(playNote, currentNote, {
+          startNoteDuration: NOTE_PLAY_DURATION,
+          noteDuration: WALK_NOTE_DURATION,
+        });
+
         message.success(t('sightReading.correct'));
+
+        // Auto-advance after correct answer
+        const seqLen = buildTonicWalkSequence(currentNote).length;
+        const playbackMs =
+          seqLen === 1
+            ? NOTE_PLAY_DURATION * 1000 + 400
+            : (NOTE_PLAY_DURATION * 1000 + WALK_GAP_MS) +
+              (seqLen - 2) * (WALK_NOTE_DURATION * 1000 + WALK_GAP_MS) +
+              WALK_NOTE_DURATION * 1000 +
+              400;
+
+        autoAdvanceRef.current = window.setTimeout(() => {
+          autoAdvanceRef.current = null;
+          nextQuestion();
+        }, playbackMs);
       } else {
+        // Wrong answer: completely silent — no playback, no hint, no visual feedback
+        setSessionTotal((n) => n + 1);
         setStreak(0);
-        setMatchState('wrong');
-        message.error(`${t('sightReading.wrong')} ${currentNote}`);
+        // Reset stability tracking to avoid immediate re-trigger after cooldown
+        stableFramesRef.current = 0;
+        lastDetectedNoteRef.current = null;
         // Set cooldown so user can try again
         wrongCooldownRef.current = performance.now() + WRONG_COOLDOWN_MS;
-        // Reset answer state after cooldown so user can retry
-        setTimeout(() => {
-          setAnswered(false);
-          setMatchState('idle');
-          stableFramesRef.current = 0;
-          lastDetectedNoteRef.current = null;
-        }, WRONG_COOLDOWN_MS);
-        return; // Don't auto-advance on wrong answer
+        // Don't set answered=true / matchState='wrong' — keeps the UI neutral
+        return;
       }
-
-      // Auto-advance after correct answer
-      const seqLen = buildTonicWalkSequence(currentNote).length;
-      const playbackMs =
-        seqLen === 1
-          ? NOTE_PLAY_DURATION * 1000 + 400
-          : (NOTE_PLAY_DURATION * 1000 + WALK_GAP_MS) +
-            (seqLen - 2) * (WALK_NOTE_DURATION * 1000 + WALK_GAP_MS) +
-            WALK_NOTE_DURATION * 1000 +
-            400;
-
-      autoAdvanceRef.current = window.setTimeout(() => {
-        autoAdvanceRef.current = null;
-        nextQuestion();
-      }, playbackMs);
     },
     [currentNote, answered, playNote, sr.recordReview, t, nextQuestion],
   );
@@ -1021,6 +1018,49 @@ export default function SightReading() {
   // Keep handleAnswer ref current (used by processAudio's RAF loop)
   const handleAnswerRef = useRef(handleAnswer);
   handleAnswerRef.current = handleAnswer;
+
+  // ---- Skip (give up on current question) ----
+  const handleSkip = useCallback(() => {
+    if (!currentNote || answered) return;
+
+    if (autoAdvanceRef.current !== null) {
+      window.clearTimeout(autoAdvanceRef.current);
+      autoAdvanceRef.current = null;
+    }
+
+    setAnswered(true);
+    setIsCorrect(false);
+    setSessionTotal((n) => n + 1);
+    setStreak(0);
+    setMatchState('wrong');
+
+    // Record as wrong in spaced-repetition system
+    sr.recordReview(currentNote, false);
+
+    // Play the tonic walk as feedback so the user hears the correct note
+    void playTonicWalk(playNote, currentNote, {
+      startNoteDuration: NOTE_PLAY_DURATION,
+      noteDuration: WALK_NOTE_DURATION,
+    });
+
+    // Show the correct note name
+    message.error(`${t('sightReading.wrong')} ${currentNote}`);
+
+    // Auto-advance after feedback playback
+    const seqLen = buildTonicWalkSequence(currentNote).length;
+    const playbackMs =
+      seqLen === 1
+        ? NOTE_PLAY_DURATION * 1000 + 400
+        : (NOTE_PLAY_DURATION * 1000 + WALK_GAP_MS) +
+          (seqLen - 2) * (WALK_NOTE_DURATION * 1000 + WALK_GAP_MS) +
+          WALK_NOTE_DURATION * 1000 +
+          400;
+
+    autoAdvanceRef.current = window.setTimeout(() => {
+      autoAdvanceRef.current = null;
+      nextQuestion();
+    }, playbackMs);
+  }, [currentNote, answered, playNote, sr.recordReview, t, nextQuestion]);
 
   // ---- Handlers ----
 
@@ -1068,11 +1108,22 @@ export default function SightReading() {
           </Space>
         }
         extra={
-          <Button
-            type="text"
-            icon={<SettingOutlined />}
-            onClick={() => setSettingsOpen(true)}
-          />
+          <Space size={4}>
+            {currentNote && !(answered && isCorrect) && (
+              <Button
+                type="text"
+                size="small"
+                onClick={handleSkip}
+              >
+                {t('sightReading.skip')}
+              </Button>
+            )}
+            <Button
+              type="text"
+              icon={<SettingOutlined />}
+              onClick={() => setSettingsOpen(true)}
+            />
+          </Space>
         }
         style={{
           flex: 1,
