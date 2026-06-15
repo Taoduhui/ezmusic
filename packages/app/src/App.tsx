@@ -7,6 +7,7 @@ import Articles from './components/Articles';
 import PwaUpdatePrompt from './components/PwaUpdatePrompt';
 import Tuner from './components/Tuner';
 import SightSinging from './components/SightSinging';
+import SightSinging2 from './components/SightSinging2';
 import FretboardMemorization from './components/FretboardMemorization';
 import SightReading from './components/SightReading';
 import { NoteSolfegeIntervalDrill } from '@ezmusic/chapter-note-solfege';
@@ -44,6 +45,12 @@ export default function App() {
       path: '/sight-singing',
       title: t('sightSinging.title'),
       page: () => <SightSinging />,
+      group: 'guitarRelated',
+    },
+    {
+      path: '/sight-singing2',
+      title: t('sightSinging2.title'),
+      page: () => <SightSinging2 />,
       group: 'guitarRelated',
     },
     {

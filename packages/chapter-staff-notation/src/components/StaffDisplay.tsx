@@ -6,7 +6,10 @@ import { useEffect, useRef, useId } from 'react';
 import { Factory } from 'vexflow';
 
 export interface StaffDisplayProps {
-  /** Scientific pitch name(s) to display, e.g. 'C4' or ['C4','E4','G4'] */
+  /** Scientific pitch name(s) to display, e.g. 'C4' or ['C4','E4','G4'].
+   *  Each entry may optionally include a VexFlow EasyScore duration suffix
+   *  (e.g. 'C4/q' for a quarter note). If a duration suffix is present it
+   *  takes precedence over `noteDuration`. */
   notes: string | string[];
   clef: 'treble' | 'bass' | 'grand';
   noteDuration?: 'w' | 'h' | 'q';
@@ -16,14 +19,20 @@ export interface StaffDisplayProps {
   accentColor?: string;
   /** Default note color */
   noteColor?: string;
+  /** Per-note color overrides. When provided, must have the same length as the
+   *  notes array. Takes precedence over `highlightNote` / `accentColor`. */
+  noteColors?: string[];
   /** Key signature (e.g. 'G', 'F', 'Bb'). 'C' or undefined = no accidentals. */
   keySignature?: string;
   width?: number;
   height?: number;
 }
 
-/** Convert scientific note like 'C4' to VexFlow EasyScore format 'C4/w' */
+/** Convert scientific note like 'C4' to VexFlow EasyScore format 'C4/w'.
+ *  If the note already contains a '/' it is treated as an EasyScore string
+ *  and returned as-is (e.g. 'C4/q' stays 'C4/q'). */
 function toEasyScore(note: string, duration = 'w'): string {
+  if (note.includes('/')) return note;
   return `${note}/${duration}`;
 }
 
@@ -39,6 +48,7 @@ export default function StaffDisplay({
   highlightNote,
   accentColor = '#7c3aed',
   noteColor = '#2c2c2c',
+  noteColors,
   keySignature,
   width = 240,
   height = 180,
@@ -59,8 +69,15 @@ export default function StaffDisplay({
     try {
       if (clef === 'grand') {
         // ── Grand staff: treble stave on top, bass stave below ──
-        const trebleNotes = noteArray.filter((n) => getOctave(n) >= 4);
-        const bassNotes = noteArray.filter((n) => getOctave(n) <= 3);
+        // Track original indices so noteColors can be applied correctly
+        const trebleEntries: { note: string; idx: number }[] = [];
+        const bassEntries: { note: string; idx: number }[] = [];
+        noteArray.forEach((n, i) => {
+          if (getOctave(n) >= 4) trebleEntries.push({ note: n, idx: i });
+          else bassEntries.push({ note: n, idx: i });
+        });
+        const trebleNotes = trebleEntries.map((e) => e.note);
+        const bassNotes = bassEntries.map((e) => e.note);
 
         // Generous height to accommodate ledger lines at both extremes:
         // C5/B5 up to 5 ledger lines above treble, C2 2 ledger lines below bass
@@ -80,7 +97,9 @@ export default function StaffDisplay({
             { clef: 'treble' },
           );
           staveTopNotes.forEach((sn, i) => {
-            const color = trebleNotes[i] === highlightNote ? accentColor : noteColor;
+            const origIdx = trebleEntries[i].idx;
+            const color = noteColors?.[origIdx]
+              ?? (trebleNotes[i] === highlightNote ? accentColor : noteColor);
             sn.setStyle({ fillStyle: color, strokeStyle: color });
           });
           const staveTop = systemTop
@@ -99,7 +118,9 @@ export default function StaffDisplay({
             { clef: 'bass' },
           );
           staveBotNotes.forEach((sn, i) => {
-            const color = bassNotes[i] === highlightNote ? accentColor : noteColor;
+            const origIdx = bassEntries[i].idx;
+            const color = noteColors?.[origIdx]
+              ?? (bassNotes[i] === highlightNote ? accentColor : noteColor);
             sn.setStyle({ fillStyle: color, strokeStyle: color });
           });
           const staveBottom = systemBottom
@@ -147,7 +168,8 @@ export default function StaffDisplay({
         );
 
         staveNotes.forEach((sn, i) => {
-          const color = noteArray[i] === highlightNote ? accentColor : noteColor;
+          const color = noteColors?.[i]
+            ?? (noteArray[i] === highlightNote ? accentColor : noteColor);
           sn.setStyle({ fillStyle: color, strokeStyle: color });
         });
 
@@ -170,7 +192,7 @@ export default function StaffDisplay({
     } catch {
       // Silently ignore VexFlow render errors (e.g. during hot reload)
     }
-  }, [notes, clef, noteDuration, highlightNote, accentColor, noteColor, keySignature, width, height, vfId]);
+  }, [notes, clef, noteDuration, highlightNote, accentColor, noteColor, noteColors, keySignature, width, height, vfId]);
 
   return <div ref={containerRef} style={{ lineHeight: 0, minHeight: height }} />;
 }
