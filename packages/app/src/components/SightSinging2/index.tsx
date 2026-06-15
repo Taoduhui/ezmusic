@@ -197,18 +197,33 @@ function generateMeasure(notePool: string[], excludeNote?: string): Array<{ note
     if (result.length > 16) break;
   }
 
-  // Ensure at least 2 notes for a meaningful measure
-  if (result.length < 2 && DURATION_OPTIONS.length > 1) {
-    // Replace the single note with two half-duration notes
-    const single = result[0];
-    const halfBeats = DURATION_OPTIONS.find((d) => d.beats === BEATS_PER_MEASURE / 2);
-    if (halfBeats && single) {
-      const note2 = available[Math.floor(Math.random() * available.length)];
-      return [
-        { note: single.note, duration: halfBeats.vf },
-        { note: note2, duration: halfBeats.vf },
-      ];
+  // Ensure at least 6 notes for a meaningful measure.
+  // Repeatedly split the longest-duration note into eighth notes until we
+  // reach the minimum, so the user practices multi-note sight-singing.
+  while (result.length < 6) {
+    // Find the note with the largest beat value
+    let maxIdx = 0;
+    let maxBeats = 0;
+    for (let i = 0; i < result.length; i++) {
+      const dur = DURATION_OPTIONS.find((d) => d.vf === result[i].duration);
+      const beats = dur ? dur.beats : 0;
+      if (beats > maxBeats) {
+        maxBeats = beats;
+        maxIdx = i;
+      }
     }
+
+    // If the longest note is already an eighth note we can't split further
+    if (maxBeats <= 0.5) break;
+
+    // Replace the long note with N eighth notes (0.5 beat each)
+    const numEighths = Math.round(maxBeats / 0.5);
+    const eighthNotes: Array<{ note: string; duration: string }> = [];
+    for (let i = 0; i < numEighths; i++) {
+      const note = available[Math.floor(Math.random() * available.length)];
+      eighthNotes.push({ note, duration: '8' });
+    }
+    result.splice(maxIdx, 1, ...eighthNotes);
   }
 
   return result;
