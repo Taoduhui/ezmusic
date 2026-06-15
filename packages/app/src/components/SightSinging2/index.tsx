@@ -464,24 +464,8 @@ export default function SightSinging2() {
       // Record review in spaced-repetition system
       sr.recordReview(current.note, isCorrect);
 
-      // Always play the tonic walk
-      void playTonicWalk(playNote, current.note, {
-        startNoteDuration: NOTE_PLAY_DURATION,
-        noteDuration: WALK_NOTE_DURATION,
-      });
-
-      // Calculate playback duration for timing
-      const seqLen = buildTonicWalkSequence(current.note).length;
-      const playbackMs =
-        seqLen === 1
-          ? NOTE_PLAY_DURATION * 1000 + 400
-          : (NOTE_PLAY_DURATION * 1000 + WALK_GAP_MS) +
-            (seqLen - 2) * (WALK_NOTE_DURATION * 1000 + WALK_GAP_MS) +
-            WALK_NOTE_DURATION * 1000 +
-            400;
-
       if (isCorrect) {
-        // Mark current note as correct (green)
+        // Correct: no sound, no button feedback, no message — just mark green and advance
         setNoteStates((prev) => {
           const next = [...prev];
           next[currentNoteIndex] = 'correct';
@@ -489,14 +473,28 @@ export default function SightSinging2() {
         });
         setSessionCorrect((n) => n + 1);
         setStreak((n) => n + 1);
-        message.success(t('sightSinging2.correct'));
+        // Don't set `chosen` — keep buttons in idle state, advance silently
+        setChosen(null);
 
-        // Advance after playback finishes
-        timeoutRef.current = window.setTimeout(() => {
-          timeoutRef.current = null;
-          advanceToNextNote(measureNotes, currentNoteIndex);
-        }, playbackMs);
+        // Advance to next note immediately (no delay needed since there's no sound)
+        advanceToNextNote(measureNotes, currentNoteIndex);
       } else {
+        // Wrong: play the tonic walk so the user hears the pitch context
+        void playTonicWalk(playNote, current.note, {
+          startNoteDuration: NOTE_PLAY_DURATION,
+          noteDuration: WALK_NOTE_DURATION,
+        });
+
+        // Calculate playback duration from the tonic-walk length
+        const seqLen = buildTonicWalkSequence(current.note).length;
+        const playbackMs =
+          seqLen === 1
+            ? NOTE_PLAY_DURATION * 1000 + 400
+            : (NOTE_PLAY_DURATION * 1000 + WALK_GAP_MS) +
+              (seqLen - 2) * (WALK_NOTE_DURATION * 1000 + WALK_GAP_MS) +
+              WALK_NOTE_DURATION * 1000 +
+              400;
+
         // Mark current note as wrong (red) temporarily
         setNoteStates((prev) => {
           const next = [...prev];
@@ -504,9 +502,9 @@ export default function SightSinging2() {
           return next;
         });
         setStreak(0);
-        message.error(`${t('sightSinging2.wrong')} ${correctSolfege}`);
+        message.error(t('sightSinging2.wrong'));
 
-        // After playback, revert wrong → active so user can retry
+        // After the tonic walk finishes, revert wrong → active so user can retry
         timeoutRef.current = window.setTimeout(() => {
           timeoutRef.current = null;
           setNoteStates((prev) => {
@@ -532,8 +530,10 @@ export default function SightSinging2() {
       const current = measureNotes[currentNoteIndex];
       if (!current) return 'idle';
       const correctSolfege = getSolfege(current.note);
-      if (option === correctSolfege) return chosen === correctSolfege ? 'correct' : 'reveal';
-      if (option === chosen) return 'wrong';
+      // Correct answer: highlight the chosen (correct) button green
+      if (option === correctSolfege && chosen === correctSolfege) return 'correct';
+      // Wrong answer: only highlight the chosen button red; don't reveal the correct one
+      if (option === chosen && chosen !== correctSolfege) return 'wrong';
       return 'idle';
     },
     [chosen, measureNotes, currentNoteIndex],
