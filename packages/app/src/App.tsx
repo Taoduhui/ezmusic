@@ -9,6 +9,7 @@ import Tuner from './components/Tuner';
 import SightSinging from './components/SightSinging';
 import SightSinging2 from './components/SightSinging2';
 import FretboardMemorization from './components/FretboardMemorization';
+import FretboardMemorization2 from './components/FretboardMemorization2';
 import SightReading from './components/SightReading';
 import { NoteSolfegeIntervalDrill } from '@ezmusic/chapter-note-solfege';
 import { DrillSession, StaffIntervalDrill } from '@ezmusic/chapter-staff-notation';
@@ -57,6 +58,12 @@ export default function App() {
       path: '/fretboard-memorization',
       title: t('fretboardMemo.title'),
       page: () => <FretboardMemorization />,
+      group: 'guitarRelated',
+    },
+    {
+      path: '/fretboard-memorization2',
+      title: t('fretboardMemo2.title'),
+      page: () => <FretboardMemorization2 />,
       group: 'guitarRelated',
     },
     {
