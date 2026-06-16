@@ -3,8 +3,8 @@
  *
  * A measure containing multiple consecutive notes of varying durations is
  * displayed on a treble-clef staff. The user identifies the solfège syllable
- * (唱名) of the current note (highlighted in blue) by picking from three
- * options at the bottom.
+ * (唱名) of the current note (highlighted in blue) by picking from a fixed
+ * 3×3 solfège grid (Sol/La/Si, Re/Mi/Fa, Do) at the bottom.
  *
  * - Correct: note turns green, advances to the next note in the measure.
  * - Wrong:   note turns red, stays on the current note, and plays the
@@ -28,7 +28,6 @@ import {
   playTonicWalk,
   buildTonicWalkSequence,
   triggerOpenDrawer,
-  shuffleArray,
 } from '@ezmusic/shared';
 import { useSRDrill } from '@ezmusic/spaced-repetition';
 import { StaffDisplay } from '@ezmusic/chapter-staff-notation';
@@ -155,23 +154,6 @@ function getSolfege(note: string): string {
   return base;
 }
 
-function getSolfegeDistractors(correctSolfege: string): string[] {
-  const baseSolfege = correctSolfege.replace(/[♯♭#b].*$/, '');
-  const correctIdx = (SOLFEGE_SYLLABLES as readonly string[]).indexOf(baseSolfege);
-
-  const candidates: string[] = [];
-  const offsets = [1, -1, 2, -2, 3, -3];
-  for (const offset of offsets) {
-    if (candidates.length >= 2) break;
-    const idx = ((correctIdx + offset) % 7 + 7) % 7;
-    const solfege = SOLFEGE_SYLLABLES[idx];
-    if (!candidates.includes(solfege)) {
-      candidates.push(solfege);
-    }
-  }
-  return candidates;
-}
-
 /** Generate a random measure: an array of notes with durations summing to ~4 beats. */
 function generateMeasure(notePool: string[], excludeNote?: string): Array<{ note: string; duration: string }> {
   const available = excludeNote && notePool.length > 1
@@ -293,7 +275,7 @@ function AnswerButton({ label, state, onClick, disabled }: AnswerButtonProps) {
       onClick={onClick}
       icon={icon ?? undefined}
       style={{
-        height: 56,
+        height: 84,
         fontWeight: 600,
         fontSize: 18,
         background: bg,
@@ -340,8 +322,6 @@ export default function SightSinging2() {
    * - 'wrong':   answered incorrectly (red) — transient, reverts to 'active'
    */
   const [noteStates, setNoteStates] = useState<Array<'pending' | 'active' | 'correct' | 'wrong'>>([]);
-  /** Solfège choices for the current note. */
-  const [choices, setChoices] = useState<string[]>([]);
   /** The solfège syllable the user selected (null until they pick one). */
   const [chosen, setChosen] = useState<string | null>(null);
   /** Session stats. */
@@ -363,13 +343,6 @@ export default function SightSinging2() {
     sr.ensureCards(notePool);
   }, [notePool, sr.ensureCards]);
 
-  /** Build choices for a specific note. */
-  const buildChoices = useCallback((note: string): string[] => {
-    const correctSolfege = getSolfege(note);
-    const distractors = getSolfegeDistractors(correctSolfege);
-    return shuffleArray([correctSolfege, ...distractors]);
-  }, []);
-
   /** Generate a new measure and reset per-measure state. */
   const nextMeasure = useCallback(() => {
     if (timeoutRef.current !== null) {
@@ -386,14 +359,13 @@ export default function SightSinging2() {
     setMeasureNotes(measure);
     setCurrentNoteIndex(0);
     setNoteStates(states);
-    setChoices(buildChoices(measure[0].note));
     setChosen(null);
 
     // Play the first note's sound
     if (playSound) {
       void playNote(measure[0].note, NOTE_PLAY_DURATION);
     }
-  }, [notePool, playNote, buildChoices, playSound]);
+  }, [notePool, playNote, playSound]);
 
   /** Advance to the next note within the current measure, or generate a new measure. */
   const advanceToNextNote = useCallback(
@@ -411,7 +383,6 @@ export default function SightSinging2() {
           next[nextIdx] = 'active';
           return next;
         });
-        setChoices(buildChoices(measure[nextIdx].note));
         setChosen(null);
 
         if (playSound) {
@@ -419,7 +390,7 @@ export default function SightSinging2() {
         }
       }
     },
-    [nextMeasure, buildChoices, playNote, playSound],
+    [nextMeasure, playNote, playSound],
   );
 
   // Initialize first measure
@@ -695,26 +666,34 @@ export default function SightSinging2() {
         </div>
       </Card>
 
-      {/* ── Bottom answer area ── */}
+      {/* ── Bottom answer area — fixed solfège grid ── */}
       <div
         style={{
           flexShrink: 0,
           background: '#fff',
           borderTop: '1px solid #f0f0f0',
-          padding: '12px 16px 16px',
+          padding: 0,
         }}
       >
-        <div style={{ display: 'flex', gap: 12 }}>
-          {choices.map((option) => (
-            <div key={option} style={{ flex: 1 }}>
-              <AnswerButton
-                label={option}
-                state={getButtonState(option)}
-                onClick={() => handleAnswer(option)}
-                disabled={chosen !== null}
-              />
-            </div>
-          ))}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr 1fr',
+            gap: 0,
+          }}
+        >
+          {/* Row 1: Sol | La | Si */}
+          <AnswerButton label="Sol" state={getButtonState('Sol')} onClick={() => handleAnswer('Sol')} disabled={chosen !== null} />
+          <AnswerButton label="La" state={getButtonState('La')} onClick={() => handleAnswer('La')} disabled={chosen !== null} />
+          <AnswerButton label="Si" state={getButtonState('Si')} onClick={() => handleAnswer('Si')} disabled={chosen !== null} />
+          {/* Row 2: Re | Mi | Fa */}
+          <AnswerButton label="Re" state={getButtonState('Re')} onClick={() => handleAnswer('Re')} disabled={chosen !== null} />
+          <AnswerButton label="Mi" state={getButtonState('Mi')} onClick={() => handleAnswer('Mi')} disabled={chosen !== null} />
+          <AnswerButton label="Fa" state={getButtonState('Fa')} onClick={() => handleAnswer('Fa')} disabled={chosen !== null} />
+          {/* Row 3: Do spans full width */}
+          <div style={{ gridColumn: '1 / -1' }}>
+            <AnswerButton label="Do" state={getButtonState('Do')} onClick={() => handleAnswer('Do')} disabled={chosen !== null} />
+          </div>
         </div>
       </div>
 
