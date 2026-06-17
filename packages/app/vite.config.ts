@@ -5,9 +5,11 @@ import { readFileSync } from 'fs';
 import { resolve } from 'path';
 
 const pkg = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf-8'));
+const host = process.env.TAURI_DEV_HOST;
+const isTauriBuild = process.env.TAURI_ENV_PLATFORM != null;
 
 export default defineConfig(({ command }) => ({
-  base: command === 'build' ? '/ezmusic/' : '/',
+  base: command === 'build' ? (isTauriBuild ? './' : '/ezmusic/') : '/',
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
@@ -83,5 +85,23 @@ export default defineConfig(({ command }) => ({
   },
   server: {
     port: 5173,
+    strictPort: true,
+    host: host || false,
+    hmr: host
+      ? {
+          protocol: 'ws',
+          host,
+          port: 1421,
+        }
+      : undefined,
+    watch: {
+      ignored: ['**/src-tauri/**'],
+    },
+  },
+  envPrefix: ['VITE_', 'TAURI_ENV_*'],
+  build: {
+    target: process.env.TAURI_ENV_PLATFORM === 'windows' ? 'chrome105' : 'safari13',
+    minify: !process.env.TAURI_ENV_DEBUG ? 'esbuild' : false,
+    sourcemap: !!process.env.TAURI_ENV_DEBUG,
   },
 }));
