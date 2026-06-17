@@ -3,7 +3,7 @@
   "version": "0.0.17",
   "private": true,
   "scripts": {
-    "dev": "pnpm --filter @ezmusic/app dev",
+    "dev": "pnpm --filter @ezmusic/app tauri:android dev",
     "build": "pnpm --filter @ezmusic/app build",
     "preview": "pnpm --filter @ezmusic/app preview"
   },

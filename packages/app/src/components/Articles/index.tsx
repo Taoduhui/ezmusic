@@ -318,9 +318,9 @@ export default function Articles({ pages, defaultCurrent = 0 }: ArticlesProps) {
           width={SIDER_WIDTH}
           style={{
             position: 'fixed',
-            top: 0,
-            left: 0,
-            height: '100vh',
+            top: 'var(--safe-area-top, 0px)',
+            left: 'var(--safe-area-left, 0px)',
+            height: 'calc(100vh - var(--safe-area-top, 0px) - var(--safe-area-bottom, 0px))',
             overflow: 'hidden',
             borderRight: '1px solid #f0f0f0',
             zIndex: 100,
@@ -359,6 +359,10 @@ export default function Articles({ pages, defaultCurrent = 0 }: ArticlesProps) {
           marginLeft: isDesktop ? SIDER_WIDTH : 0,
           minHeight: '100vh',
           background: '#fff',
+          paddingTop: 'var(--safe-area-top, 0px)',
+          paddingBottom: 'var(--safe-area-bottom, 0px)',
+          paddingLeft: isDesktop ? '0px' : 'var(--safe-area-left, 0px)',
+          paddingRight: 'var(--safe-area-right, 0px)',
         }}
       >
         {/* Content — full-width, no padding, no max-width */}
