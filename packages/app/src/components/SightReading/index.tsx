@@ -11,12 +11,9 @@
  */
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
-  Button, Typography, Drawer, Select, Slider, Space, Grid, message, Card, Switch, Progress,
-} from 'antd';
-import {
-  SettingOutlined, SoundOutlined, AudioOutlined, AudioMutedOutlined,
-  MenuOutlined,
-} from '@ant-design/icons';
+  Button, Text, Drawer, Select, Slider, Space, useBreakpoint, message, Card, Switch, Progress,
+  SettingOutlined, SoundOutlined, AudioOutlined, AudioMutedOutlined, ChevronLeftIcon,
+} from '@ezmusic/shared';
 import { useTranslation } from 'react-i18next';
 import {
   useAudio,
@@ -35,9 +32,6 @@ import {
 import type { TunableNote, YinOptions } from '@ezmusic/shared';
 import { useSRDrill } from '@ezmusic/spaced-repetition';
 import { StaffDisplay } from '@ezmusic/chapter-staff-notation';
-
-const { Text } = Typography;
-const { useBreakpoint } = Grid;
 
 // ---------------------------------------------------------------------------
 // Constants — note generation
@@ -1094,14 +1088,13 @@ export default function SightReading() {
       <Card
         title={
           <Space>
-            {!isDesktop && (
-              <Button
-                type="text"
-                icon={<MenuOutlined />}
-                onClick={() => triggerOpenDrawer()}
-                style={{ padding: 0 }}
-              />
-            )}
+            <Button
+              type="text"
+              icon={<ChevronLeftIcon />}
+              onClick={() => triggerOpenDrawer()}
+              style={{ padding: 0 }}
+              aria-label={t('nav.back')}
+            />
             <span style={{ fontWeight: 600 }}>
               {t('sightReading.title')}
             </span>
@@ -1331,16 +1324,13 @@ export default function SightReading() {
               step={MIC_GAIN_STEP}
               value={micGain}
               onChange={setMicGain}
-              tooltip={{
-                formatter: (v) => `${v?.toFixed(1)}×`,
-              }}
-              marks={{
-                [MIC_GAIN_MIN]: `${MIC_GAIN_MIN}×`,
-                1.0: '1×',
-                [MIC_GAIN_MAX]: `${MIC_GAIN_MAX}×`,
-              }}
               style={{ marginBottom: 0 }}
             />
+            <div className="mt-1 flex justify-between text-xs text-muted-foreground">
+              <span>{MIC_GAIN_MIN}×</span>
+              <span>{micGain.toFixed(1)}×</span>
+              <span>{MIC_GAIN_MAX}×</span>
+            </div>
           </div>
 
           {/* Audio device selector */}

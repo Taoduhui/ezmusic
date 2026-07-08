@@ -20,3 +20,6 @@ export {
   createDebugLogger,
 } from './utils/debug';
 export type { DebugLevel, DebugLogger } from './utils/debug';
+
+// UI kit (Radix + Tailwind, shadcn/ui pattern)
+export * from './ui';

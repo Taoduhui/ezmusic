@@ -9,11 +9,9 @@
  */
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
-  Button, Typography, Drawer, Select, Space, Grid, message, Card, Switch,
-} from 'antd';
-import {
-  SettingOutlined, SoundOutlined, MenuOutlined,
-} from '@ant-design/icons';
+  Button, Text, Drawer, Select, Space, useBreakpoint, message, Card, Switch,
+  SettingOutlined, SoundOutlined, ChevronLeftIcon,
+} from '@ezmusic/shared';
 import { useTranslation } from 'react-i18next';
 import {
   GuitarFretboard,
@@ -26,9 +24,6 @@ import {
 import { useSRDrill } from '@ezmusic/spaced-repetition';
 import { StaffDisplay } from '@ezmusic/chapter-staff-notation';
 import type { KeyHighlight } from '@ezmusic/shared';
-
-const { Text } = Typography;
-const { useBreakpoint } = Grid;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -432,14 +427,13 @@ export default function FretboardMemorization() {
       <Card
         title={
           <Space>
-            {!isDesktop && (
-              <Button
-                type="text"
-                icon={<MenuOutlined />}
-                onClick={() => triggerOpenDrawer()}
-                style={{ padding: 0 }}
-              />
-            )}
+            <Button
+              type="text"
+              icon={<ChevronLeftIcon />}
+              onClick={() => triggerOpenDrawer()}
+              style={{ padding: 0 }}
+              aria-label={t('nav.back')}
+            />
             <span style={{ fontWeight: 600 }}>
               {t('fretboardMemo.title')}
             </span>

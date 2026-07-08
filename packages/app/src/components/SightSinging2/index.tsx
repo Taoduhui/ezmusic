@@ -15,12 +15,9 @@
 
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
-  Button, Typography, Drawer, Select, Space, Grid, message, Card, Switch,
-} from 'antd';
-import {
-  SettingOutlined, SoundOutlined, CheckOutlined, CloseOutlined,
-  MenuOutlined,
-} from '@ant-design/icons';
+  Button, Text, Drawer, Select, Space, useBreakpoint, message, Card, Switch,
+  SettingOutlined, SoundOutlined, CheckOutlined, CloseOutlined, ChevronLeftIcon,
+} from '@ezmusic/shared';
 import { useTranslation } from 'react-i18next';
 import {
   SOLFEGE_SYLLABLES,
@@ -31,9 +28,6 @@ import {
 } from '@ezmusic/shared';
 import { useSRDrill } from '@ezmusic/spaced-repetition';
 import { StaffDisplay } from '@ezmusic/chapter-staff-notation';
-
-const { Text } = Typography;
-const { useBreakpoint } = Grid;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -573,14 +567,13 @@ export default function SightSinging2() {
       <Card
         title={
           <Space>
-            {!isDesktop && (
-              <Button
-                type="text"
-                icon={<MenuOutlined />}
-                onClick={() => triggerOpenDrawer()}
-                style={{ padding: 0 }}
-              />
-            )}
+            <Button
+              type="text"
+              icon={<ChevronLeftIcon />}
+              onClick={() => triggerOpenDrawer()}
+              style={{ padding: 0 }}
+              aria-label={t('nav.back')}
+            />
             <span style={{ fontWeight: 600 }}>{t('sightSinging2.title')}</span>
           </Space>
         }

@@ -4,12 +4,10 @@
  */
 import { useEffect, useRef, useId, useState, useCallback } from 'react';
 import { Factory, Stave, StaveNote, Voice, VoiceMode, Formatter } from 'vexflow';
-import { Typography, Card, Space, Button, Tooltip } from 'antd';
-import { SoundOutlined, PlayCircleOutlined } from '@ant-design/icons';
+import {
+  Card, Space, Button, Tooltip, Text, SoundOutlined, PlayCircleOutlined, useAudio,
+} from '@ezmusic/shared';
 import { useTranslation } from 'react-i18next';
-import { useAudio } from '@ezmusic/shared';
-
-const { Text } = Typography;
 
 // ---------------------------------------------------------------------------
 // Configuration

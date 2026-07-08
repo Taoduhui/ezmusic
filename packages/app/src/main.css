@@ -1,3 +1,91 @@
-#root{
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Safe-area insets.
+       iOS: env(safe-area-inset-*) works natively in WKWebView.
+       Android: values are injected by MainActivity.kt via evaluateJavascript. */
+    --safe-area-top: env(safe-area-inset-top, 0px);
+    --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-area-left: env(safe-area-inset-left, 0px);
+    --safe-area-right: env(safe-area-inset-right, 0px);
+
+    /* Dark, premium theme (deep navy + blue accent). */
+    color-scheme: dark;
+
+    --background: 222 47% 6%;
+    --foreground: 210 40% 96%;
+    --card: 222 33% 11%;
+    --card-foreground: 210 40% 96%;
+    --popover: 222 38% 9%;
+    --popover-foreground: 210 40% 96%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 222 25% 16%;
+    --secondary-foreground: 210 40% 96%;
+    --muted: 222 25% 16%;
+    --muted-foreground: 215 20% 62%;
+    --accent: 222 28% 18%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 98%;
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+    --border: 222 22% 20%;
+    --input: 222 22% 20%;
+    --ring: 217 91% 60%;
+    --radius: 1rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html,
+  body {
     height: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    margin: 0;
+    /* Mobile: honour safe-area insets so content never sits under notches/bars. */
+    padding-top: var(--safe-area-top);
+    padding-bottom: var(--safe-area-bottom);
+    padding-left: var(--safe-area-left);
+    padding-right: var(--safe-area-right);
+    height: calc(100vh - var(--safe-area-top, 0px) - var(--safe-area-bottom, 0px));
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+      'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+    /* Prevent iOS text auto-zoom & disable overscroll bounce for an app feel. */
+    -webkit-text-size-adjust: 100%;
+    overscroll-behavior: none;
+  }
+
+  /* Disable text selection on interactive chrome for a native-app feel,
+     while keeping it available inside articles/tables. */
+  button,
+  [role='button'],
+  [role='tab'],
+  [role='menuitem'] {
+    -webkit-user-select: none;
+    user-select: none;
+    touch-action: manipulation;
+  }
+}
+
+#root {
+  height: 100%;
+}
+
+/* Active row highlight for the solfège mapping table. */
+.mapping-row-active {
+  background-color: hsl(var(--accent));
 }

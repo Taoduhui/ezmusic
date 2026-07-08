@@ -3,13 +3,11 @@
  * Clicking a note renders it in the StaffDisplay and plays it via Tone.js.
  */
 import { useState, useCallback } from 'react';
-import { Typography, Button, Card, Space, Tag, Row, Col, Alert } from 'antd';
-import { SoundOutlined } from '@ant-design/icons';
+import {
+  Button, Card, Space, Tag, Row, Col, Alert, Text, Paragraph, SoundOutlined, useAudio,
+} from '@ezmusic/shared';
 import { useTranslation } from 'react-i18next';
-import { useAudio } from '@ezmusic/shared';
 import StaffDisplay from './StaffDisplay';
-
-const { Text, Paragraph } = Typography;
 
 interface NoteGuideProps {
   clef: 'treble' | 'bass';

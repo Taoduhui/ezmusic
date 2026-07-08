@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { notification } from 'antd';
+import { notification } from '@ezmusic/shared';
 import { useTranslation } from 'react-i18next';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 

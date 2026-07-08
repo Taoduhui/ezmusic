@@ -9,23 +9,25 @@ import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import {
   Button,
   Card,
-  Grid,
   Popconfirm,
   Progress,
   Slider,
   Space,
   Switch,
   Tag,
-  Typography,
+  Paragraph,
+  Text,
+  useBreakpoint,
   message,
-} from 'antd';
-import { ReloadOutlined, SoundOutlined, TrophyOutlined, MenuOutlined } from '@ant-design/icons';
+  ReloadOutlined,
+  SoundOutlined,
+  TrophyOutlined,
+  ChevronLeftIcon,
+  useAudio,
+  triggerOpenDrawer,
+} from '@ezmusic/shared';
 import { useTranslation } from 'react-i18next';
-import { useAudio, triggerOpenDrawer } from '@ezmusic/shared';
 import { useSRDrill } from '@ezmusic/spaced-repetition';
-
-const { Paragraph, Text } = Typography;
-const { useBreakpoint } = Grid;
 
 const STORAGE_KEY = 'ezmusic-note-solfege-interval-drill';
 const LEFT_MIN = 1;
@@ -484,16 +486,13 @@ export default function IntervalDrill() {
       <Card
         title={
           <Space>
-            {screens.lg ? (
-              <span style={{ fontSize: 18 }}>⚡</span>
-            ) : (
-              <Button
-                type="text"
-                icon={<MenuOutlined />}
-                onClick={() => triggerOpenDrawer()}
-                style={{ padding: 0 }}
-              />
-            )}
+            <Button
+              type="text"
+              icon={<ChevronLeftIcon />}
+              onClick={() => triggerOpenDrawer()}
+              style={{ padding: 0 }}
+              aria-label={t('nav.back')}
+            />
             <span style={{ fontWeight: 600 }}>{t('noteSolfege.intervalSpeedDrill')}</span>
           </Space>
         }

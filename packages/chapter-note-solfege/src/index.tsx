@@ -4,7 +4,6 @@
  */
 import { useState, useCallback, useMemo, useEffect } from "react";
 import {
-  Typography,
   Card,
   Row,
   Col,
@@ -14,8 +13,12 @@ import {
   Divider,
   Alert,
   Descriptions,
-} from "antd";
-import { InfoCircleOutlined, SoundOutlined } from "@ant-design/icons";
+  Title,
+  Paragraph,
+  Text,
+  InfoCircleOutlined,
+  SoundOutlined,
+} from "@ezmusic/shared";
 import { useTranslation } from "react-i18next";
 import {
   COMMON_MAJOR_KEYS,
@@ -35,8 +38,6 @@ import MappingTable from "./components/MappingTable";
 import FreqChart from "./components/FreqChart";
 import IntervalDrill from "./components/IntervalDrill";
 export { IntervalDrill as NoteSolfegeIntervalDrill };
-
-const { Title, Paragraph, Text } = Typography;
 
 export default function ChapterNoteSolfege() {
   const { t, i18n } = useTranslation();

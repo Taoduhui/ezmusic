@@ -16,14 +16,12 @@
  */
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
-  Card, Button, Space, Typography, Progress, Tag,
-  Tooltip, Popconfirm, Grid, Select, Collapse,
+  Card, Button, Space, Text, Progress, Tag,
+  Tooltip, Popconfirm, useBreakpoint, Select, Collapse,
   message, Slider,
-} from 'antd';
-import {
   CheckOutlined, CloseOutlined, ReloadOutlined,
-  TrophyOutlined, FireOutlined, MenuOutlined,
-} from '@ant-design/icons';
+  TrophyOutlined, FireOutlined, ChevronLeftIcon,
+} from '@ezmusic/shared';
 import { useTranslation } from 'react-i18next';
 import {
   DRILL_STAGE_ORDER,
@@ -47,9 +45,6 @@ import {
 import { useSRDrill } from '@ezmusic/spaced-repetition';
 import StaffDisplay from './StaffDisplay';
 import { PianoKeyboard, GuitarFretboard, type KeyHighlight } from '@ezmusic/shared';
-
-const { Text } = Typography;
-const { useBreakpoint } = Grid;
 
 const STORAGE_KEY = 'ezmusic-staff-drill-progress';
 const MASTERY_STREAK = 3;
@@ -470,7 +465,7 @@ export default function DrillSession() {
       const wrap = pianoSliderWrapRef.current;
       if (!wrap) return;
 
-      const rail = wrap.querySelector('.ant-slider-rail') as HTMLElement;
+      const rail = wrap.querySelector('[data-slider-rail]') as HTMLElement;
       if (!rail) return;
 
       const railRect = rail.getBoundingClientRect();
@@ -936,16 +931,13 @@ export default function DrillSession() {
       <Card
         title={
           <Space>
-            {screens.lg ? (
-              <span style={{ fontSize: 18 }}>🎓</span>
-            ) : (
-              <Button
-                type="text"
-                icon={<MenuOutlined />}
-                onClick={() => triggerOpenDrawer()}
-                style={{ padding: 0 }}
-              />
-            )}
+            <Button
+              type="text"
+              icon={<ChevronLeftIcon />}
+              onClick={() => triggerOpenDrawer()}
+              style={{ padding: 0 }}
+              aria-label={t('nav.back')}
+            />
             <span style={{ fontWeight: 600 }}>{t('staffNotation.drillTitle')}</span>
           </Space>
         }
@@ -1178,9 +1170,6 @@ export default function DrillSession() {
                   max={pianoMaxSlider}
                   value={[clampedPianoStart, clampedPianoEnd]}
                   onChange={handlePianoRangeChange}
-                  tooltip={{
-                    formatter: (v) => ALL_PIANO_NOTES[v ?? 0] ?? '',
-                  }}
                   style={{ margin: 0 }}
                 />
               </div>

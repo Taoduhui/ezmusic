@@ -1,7 +1,7 @@
 /**
  * Solfège ↔ Note Name mapping table.
  */
-import { Table, Tag } from 'antd';
+import { Table, Tag } from '@ezmusic/shared';
 import type { MappingRow } from '@ezmusic/shared';
 import { useTranslation } from 'react-i18next';
 
@@ -45,7 +45,6 @@ export default function MappingTable({ rows, activePC }: MappingTableProps) {
     <Table
       dataSource={rows.map((r) => ({ ...r, key: r.degree }))}
       columns={columns}
-      pagination={false}
       size="small"
       style={{ borderRadius: 8, overflow: 'hidden' }}
       rowClassName={(row) =>

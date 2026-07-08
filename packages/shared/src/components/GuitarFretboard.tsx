@@ -10,7 +10,7 @@
  * A dual-handle range slider selects the drill range (fretStart..fretEnd).
  */
 import { useMemo, useRef, useEffect, useCallback, useState } from 'react';
-import { Slider } from 'antd';
+import { Slider } from '../ui';
 import type { KeyHighlight, KeyHighlightState } from './PianoKeyboard';
 
 // ---------------------------------------------------------------------------
@@ -266,7 +266,7 @@ export default function GuitarFretboard({
       const wrap = sliderWrapRef.current;
       if (!wrap) return;
 
-      const rail = wrap.querySelector('.ant-slider-rail') as HTMLElement;
+      const rail = wrap.querySelector('[data-slider-rail]') as HTMLElement;
       if (!rail) return;
 
       const railRect = rail.getBoundingClientRect();
@@ -324,9 +324,6 @@ export default function GuitarFretboard({
             max={maxSlider}
             value={[clampedStart, clampedEnd]}
             onChange={handleSliderChange}
-            tooltip={{
-              formatter: (v) => (v === 0 ? '空弦' : `品 ${v}`),
-            }}
             style={{ margin: 0 }}
           />
         </div>

@@ -3,7 +3,7 @@
  * Pure SVG implementation — log2 y-axis, no chart library dependency.
  */
 import { useState } from 'react';
-import { Tooltip } from 'antd';
+import { Tooltip } from '@ezmusic/shared';
 import type { FreqDataPoint } from '@ezmusic/shared';
 import { useTranslation } from 'react-i18next';
 

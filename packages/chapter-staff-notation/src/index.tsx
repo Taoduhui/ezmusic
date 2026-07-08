@@ -2,7 +2,7 @@
  * Chapter: Reading Music Notation (认识五线谱)
  * Shows concept cards, treble/bass clef guides, duration visual, and the Anki-like drill.
  */
-import { Typography, Card, Row, Col, Space, Tag, Grid } from 'antd';
+import { Card, Row, Col, Space, Tag, Title, Paragraph, useBreakpoint } from '@ezmusic/shared';
 import { useTranslation } from 'react-i18next';
 import {
   TREBLE_2OCT_NOTES,
@@ -15,9 +15,6 @@ import DrillSession from './components/DrillSession';
 import IntervalDrill from './components/IntervalDrill';
 export { DrillSession, IntervalDrill as StaffIntervalDrill };
 export { default as StaffDisplay } from './components/StaffDisplay';
-
-const { Title, Paragraph } = Typography;
-const { useBreakpoint } = Grid;
 
 // ---------------------------------------------------------------------------
 // Concept card helper

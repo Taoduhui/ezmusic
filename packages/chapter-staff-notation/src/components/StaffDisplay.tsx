@@ -46,7 +46,7 @@ export default function StaffDisplay({
   clef,
   noteDuration = 'w',
   highlightNote,
-  accentColor = '#7c3aed',
+  accentColor = '#2563eb',
   noteColor = '#2c2c2c',
   noteColors,
   keySignature,
@@ -194,5 +194,20 @@ export default function StaffDisplay({
     }
   }, [notes, clef, noteDuration, highlightNote, accentColor, noteColor, noteColors, keySignature, width, height, vfId]);
 
-  return <div ref={containerRef} style={{ lineHeight: 0, minHeight: height }} />;
+  // Sheet music is conventionally black-on-white. On the app's dark theme we
+  // render the staff on a light "paper" surface so the (dark) staff lines,
+  // clefs and notes stay perfectly legible.
+  return (
+    <div
+      style={{
+        background: '#fbfbfd',
+        borderRadius: 14,
+        padding: 8,
+        display: 'inline-block',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
+      }}
+    >
+      <div ref={containerRef} style={{ lineHeight: 0, minHeight: height }} />
+    </div>
+  );
 }

@@ -3,23 +3,19 @@ import {
   Card,
   Select,
   Button,
-  Typography,
+  Text,
   Space,
   Tag,
   Progress,
   theme,
-  Grid,
-} from 'antd';
-import {
+  useBreakpoint,
   AudioOutlined,
   AudioMutedOutlined,
-  MenuOutlined,
-} from '@ant-design/icons';
+  ChevronLeftIcon,
+} from '@ezmusic/shared';
 import { useTranslation } from 'react-i18next';
 import { triggerOpenDrawer, detectPitchYIN, buildTunableNotes, findClosestNote, centsDiff, DEFAULT_MIN_FREQ_HZ, DEFAULT_MAX_FREQ_HZ, YIN_THRESHOLD, A4_FREQ, NOTE_NAMES, SEMITONE_RATIO, C0_FREQ, DBG, createDebugLogger } from '@ezmusic/shared';
 import type { TunableNote, YinOptions } from '@ezmusic/shared';
-
-const { Text } = Typography;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -220,8 +216,6 @@ function findClosestNoteForTuner(freq: number): TunableNote {
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
-
-const { useBreakpoint } = Grid;
 
 export default function Tuner() {
   const { t } = useTranslation();
@@ -872,13 +866,12 @@ export default function Tuner() {
       <Card
         title={
           <Space>
-            {!isDesktop && (
-              <Button
-                type="text"
-                icon={<MenuOutlined />}
-                onClick={() => triggerOpenDrawer()}
-              />
-            )}
+            <Button
+              type="text"
+              icon={<ChevronLeftIcon />}
+              onClick={() => triggerOpenDrawer()}
+              aria-label={t('nav.back')}
+            />
             <span style={{ fontWeight: 600 }}>{t('tuner.title')}</span>
           </Space>
         }

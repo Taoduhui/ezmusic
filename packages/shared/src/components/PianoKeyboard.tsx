@@ -7,10 +7,8 @@
  *   2. Simplified mode — no labels/inScaleSet → plain note-name keys (for drill training)
  */
 import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
-import { Tooltip, Typography } from 'antd';
+import { Tooltip, Text } from '../ui';
 import type { NoteLabel } from '../music/theory';
-
-const { Text } = Typography;
 
 // ---------------------------------------------------------------------------
 // Octave ruler — quick navigation for multi-octave keyboards
