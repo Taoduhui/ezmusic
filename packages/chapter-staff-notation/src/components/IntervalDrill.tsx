@@ -452,7 +452,7 @@ export default function IntervalDrill() {
       style={{
         display: 'flex',
         flexDirection: 'column',
-        height: '100vh',
+        height: '100%',
         overflow: 'hidden',
       }}
     >

@@ -86,7 +86,8 @@ export default defineConfig(({ command }) => ({
   server: {
     port: 5173,
     strictPort: true,
-    host: host || false,
+    // Tauri Android dev 需要监听 0.0.0.0，否则设备无法通过局域网连接 dev server
+    host: host || '0.0.0.0',
     hmr: host
       ? {
           protocol: 'ws',
@@ -100,7 +101,7 @@ export default defineConfig(({ command }) => ({
   },
   envPrefix: ['VITE_', 'TAURI_ENV_*'],
   build: {
-    target: process.env.TAURI_ENV_PLATFORM === 'windows' ? 'chrome105' : 'safari13',
+    target: (process.env.TAURI_ENV_PLATFORM === 'windows' || process.env.TAURI_ENV_PLATFORM === 'android') ? 'chrome105' : 'safari13',
     minify: !process.env.TAURI_ENV_DEBUG ? 'esbuild' : false,
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
   },

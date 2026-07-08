@@ -3,6 +3,7 @@ import zhCN from 'antd/locale/zh_CN';
 import enUS from 'antd/locale/en_US';
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import { start } from 'tauri-plugin-keepawake-api';
 import Articles from './components/Articles';
 import PwaUpdatePrompt from './components/PwaUpdatePrompt';
 import Tuner from './components/Tuner';
@@ -34,6 +35,13 @@ export default function App() {
       i18n.off('languageChanged', handleLangChange);
     };
   }, [i18n]);
+
+  // Keep screen/system awake while app is running
+  useEffect(() => {
+    start({ display: true, idle: true, sleep: true }).catch(() => {
+      // Silently fail if keepawake is not available (e.g., running as PWA)
+    });
+  }, []);
 
   const pages = [
     {

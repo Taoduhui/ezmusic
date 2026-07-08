@@ -1,6 +1,11 @@
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-  tauri::Builder::default()
+  let builder = tauri::Builder::default();
+
+  #[cfg(not(target_os = "android"))]
+  let builder = builder.plugin(tauri_plugin_keepawake::init());
+
+  builder
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(

@@ -107,9 +107,19 @@ if (ndkHome) {
   env.NDK_HOME = ndkHome;
 }
 
+// USB 连接时需要 ADB 端口转发，Android 设备才能访问 PC 的 dev server
+// reverse 可能会失败(如设备已离线), 忽略错误继续
+const { execSync } = require('child_process');
+try { execSync('adb reverse tcp:5173 tcp:5173', { stdio: 'ignore' }); } catch {}
+try { execSync('adb reverse tcp:1421 tcp:1421', { stdio: 'ignore' }); } catch {}
+
 const args = process.argv.slice(2);
 const command = tauriEntry || (process.platform === 'win32' ? 'tauri.cmd' : 'tauri');
-const commandArgs = tauriEntry ? [tauriEntry, 'android', ...args] : ['android', ...args];
+
+// --host 仅对 dev 子命令有意义，且需通过 -- 透传给 vite
+const isDev = args[0] === 'dev';
+const baseArgs = tauriEntry ? [tauriEntry, 'android', ...args] : ['android', ...args];
+const commandArgs = isDev ? [...baseArgs, '--', '--host', '127.0.0.1'] : baseArgs;
 
 const result = spawnSync(tauriEntry ? process.execPath : command, commandArgs, {
   stdio: 'inherit',

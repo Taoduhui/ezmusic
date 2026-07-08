@@ -1,4 +1,4 @@
-import { useState, ReactNode, useCallback, useEffect, useMemo } from 'react';
+import { useState, ReactNode, useCallback, useEffect, useMemo } from "react";
 import {
   Layout,
   Menu,
@@ -10,16 +10,16 @@ import {
   Select,
   Tooltip,
   message,
-} from 'antd';
+} from "antd";
 import {
   SoundOutlined,
   CloseOutlined,
   ReloadOutlined,
-} from '@ant-design/icons';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { useTranslation } from 'react-i18next';
-import { supportedLocales, i18n, setDrawerTrigger } from '@ezmusic/shared';
-import type { SupportedLocale } from '@ezmusic/shared';
+} from "@ant-design/icons";
+import { useLocation, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import { supportedLocales, i18n, setDrawerTrigger } from "@ezmusic/shared";
+import type { SupportedLocale } from "@ezmusic/shared";
 
 const { Sider, Content } = Layout;
 const { useBreakpoint } = Grid;
@@ -51,13 +51,14 @@ export default function Articles({ pages, defaultCurrent = 0 }: ArticlesProps) {
   const [checking, setChecking] = useState(false);
   const [openKeys, setOpenKeys] = useState<string[]>([]);
   const [locale, setLocale] = useState<SupportedLocale>(
-    (i18n.resolvedLanguage as SupportedLocale) ?? 'zh-CN',
+    (i18n.resolvedLanguage as SupportedLocale) ?? "zh-CN",
   );
 
   const currentIdx = useMemo(() => {
-    const pathname = location.pathname !== '/' && location.pathname.endsWith('/')
-      ? location.pathname.slice(0, -1)
-      : location.pathname;
+    const pathname =
+      location.pathname !== "/" && location.pathname.endsWith("/")
+        ? location.pathname.slice(0, -1)
+        : location.pathname;
 
     return pages.findIndex((page) => page.path === pathname);
   }, [location.pathname, pages]);
@@ -66,12 +67,12 @@ export default function Articles({ pages, defaultCurrent = 0 }: ArticlesProps) {
 
   useEffect(() => {
     const handleLanguageChanged = (value: string) => {
-      setLocale((value as SupportedLocale) ?? 'zh-CN');
+      setLocale((value as SupportedLocale) ?? "zh-CN");
     };
 
-    i18n.on('languageChanged', handleLanguageChanged);
+    i18n.on("languageChanged", handleLanguageChanged);
     return () => {
-      i18n.off('languageChanged', handleLanguageChanged);
+      i18n.off("languageChanged", handleLanguageChanged);
     };
   }, []);
 
@@ -84,14 +85,14 @@ export default function Articles({ pages, defaultCurrent = 0 }: ArticlesProps) {
     setChecking(true);
     try {
       // Force check for SW update
-      if (!('serviceWorker' in navigator)) {
-        message.info(t('pwa.upToDate'));
+      if (!("serviceWorker" in navigator)) {
+        message.info(t("pwa.upToDate"));
         setChecking(false);
         return;
       }
       const reg = await navigator.serviceWorker.getRegistration();
       if (!reg) {
-        message.info(t('pwa.upToDate'));
+        message.info(t("pwa.upToDate"));
         setChecking(false);
         return;
       }
@@ -100,9 +101,9 @@ export default function Articles({ pages, defaultCurrent = 0 }: ArticlesProps) {
       await new Promise((r) => setTimeout(r, 1000));
       // If needRefresh didn't flip, no update found
       // We use a message key to debounce
-      message.success(t('pwa.upToDate'));
+      message.success(t("pwa.upToDate"));
     } catch {
-      message.info(t('pwa.upToDate'));
+      message.info(t("pwa.upToDate"));
     } finally {
       setChecking(false);
     }
@@ -116,21 +117,26 @@ export default function Articles({ pages, defaultCurrent = 0 }: ArticlesProps) {
     routerNavigate(pages[defaultCurrent].path, { replace: true });
   }, [currentIdx, defaultCurrent, pages, routerNavigate]);
 
-  const goToPage = useCallback((idx: number) => {
-    const target = pages[idx];
-    if (!target) return;
+  const goToPage = useCallback(
+    (idx: number) => {
+      const target = pages[idx];
+      if (!target) return;
 
-    routerNavigate(target.path);
-    setDrawerOpen(false);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, [pages, routerNavigate]);
+      routerNavigate(target.path);
+      setDrawerOpen(false);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    },
+    [pages, routerNavigate],
+  );
 
   // Auto-open the parent SubMenu when the current page belongs to a group
   useEffect(() => {
     const page = pages[resolvedCurrentIdx];
     if (page?.group) {
       const groupKey = `group-${page.group}`;
-      setOpenKeys((prev) => (prev.includes(groupKey) ? prev : [...prev, groupKey]));
+      setOpenKeys((prev) =>
+        prev.includes(groupKey) ? prev : [...prev, groupKey],
+      );
     }
   }, [resolvedCurrentIdx, pages]);
 
@@ -154,12 +160,12 @@ export default function Articles({ pages, defaultCurrent = 0 }: ArticlesProps) {
     const makeLabel = (title: string, idx: number) => (
       <Text
         style={{
-          color: idx === resolvedCurrentIdx ? '#7c3aed' : undefined,
+          color: idx === resolvedCurrentIdx ? "#7c3aed" : undefined,
           fontWeight: idx === resolvedCurrentIdx ? 600 : 400,
           fontSize: 14,
           lineHeight: 1.5,
-          whiteSpace: 'normal',
-          wordBreak: 'break-all',
+          whiteSpace: "normal",
+          wordBreak: "break-all",
         }}
       >
         {title}
@@ -191,55 +197,65 @@ export default function Articles({ pages, defaultCurrent = 0 }: ArticlesProps) {
   const siderContent = (
     <div
       style={{
-        display: 'flex',
-        flexDirection: 'column',
-        height: '100%',
-        background: '#fff',
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        background: "#fff",
       }}
     >
       {/* Logo */}
       <div
         style={{
-          padding: '24px 20px 20px',
-          borderBottom: '1px solid #f0f0f0',
+          padding: "24px 20px 20px",
+          borderBottom: "1px solid #f0f0f0",
           flexShrink: 0,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div
             style={{
               width: 36,
               height: 36,
-              background: 'linear-gradient(135deg, #7c3aed, #5b21b6)',
+              background: "linear-gradient(135deg, #7c3aed, #5b21b6)",
               borderRadius: 10,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
               flexShrink: 0,
             }}
           >
-            <SoundOutlined style={{ color: '#fff', fontSize: 18 }} />
+            <SoundOutlined style={{ color: "#fff", fontSize: 18 }} />
           </div>
           <div>
-            <div style={{ fontWeight: 700, fontSize: 16, lineHeight: 1.2, color: '#1a1a2e' }}>
-              {t('app.title')}
+            <div
+              style={{
+                fontWeight: 700,
+                fontSize: 16,
+                lineHeight: 1.2,
+                color: "#1a1a2e",
+              }}
+            >
+              {t("app.title")}
             </div>
-            <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
-              {t('app.subtitle')}
+            <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>
+              {t("app.subtitle")}
             </div>
           </div>
         </div>
       </div>
 
       {/* Navigation label */}
-      <div style={{ padding: '16px 20px 8px', flexShrink: 0 }}>
-        <Text type="secondary" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1 }}>
-          {t('nav.menu')}
+      <div style={{ padding: "16px 20px 8px", flexShrink: 0 }}>
+        <Text
+          type="secondary"
+          style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}
+        >
+          {t("nav.menu")}
         </Text>
       </div>
 
       {/* Menu */}
-      <div style={{ flex: 1, overflowY: 'auto' }}>
+      <div style={{ flex: 1, overflowY: "auto" }}>
         <Menu
           mode="inline"
           selectedKeys={[currentPage.path]}
@@ -250,26 +266,32 @@ export default function Articles({ pages, defaultCurrent = 0 }: ArticlesProps) {
             const idx = pages.findIndex((page) => page.path === key);
             if (idx >= 0) goToPage(idx);
           }}
-          style={{ border: 'none', background: 'transparent' }}
+          style={{ border: "none", background: "transparent" }}
         />
       </div>
 
       {/* Language switcher */}
       <div
         style={{
-          padding: '16px 20px',
-          borderTop: '1px solid #f0f0f0',
+          padding: "16px 20px",
+          borderTop: "1px solid #f0f0f0",
           flexShrink: 0,
         }}
       >
-        <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
-          {t('lang.switchLang')}
+        <Text
+          type="secondary"
+          style={{ fontSize: 12, display: "block", marginBottom: 8 }}
+        >
+          {t("lang.switchLang")}
         </Text>
         <Select
           value={locale}
           onChange={handleLocaleChange}
-          options={supportedLocales.map((l) => ({ value: l.key, label: l.label }))}
-          style={{ width: '100%' }}
+          options={supportedLocales.map((l) => ({
+            value: l.key,
+            label: l.label,
+          }))}
+          style={{ width: "100%" }}
           size="small"
         />
       </div>
@@ -277,25 +299,25 @@ export default function Articles({ pages, defaultCurrent = 0 }: ArticlesProps) {
       {/* Version */}
       <div
         style={{
-          padding: '8px 20px 16px',
+          padding: "8px 20px 16px",
           flexShrink: 0,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
           gap: 4,
         }}
       >
         <Text type="secondary" style={{ fontSize: 11 }}>
           v{__APP_VERSION__}
         </Text>
-        <Tooltip title={t('pwa.checkUpdate')}>
+        <Tooltip title={t("pwa.checkUpdate")}>
           <Button
             type="text"
             size="small"
             icon={<ReloadOutlined />}
             loading={checking}
             onClick={handleCheckUpdate}
-            style={{ color: '#9ca3af', fontSize: 11, minWidth: 24, height: 24 }}
+            style={{ color: "#9ca3af", fontSize: 11, minWidth: 24, height: 24 }}
           />
         </Tooltip>
       </div>
@@ -311,20 +333,19 @@ export default function Articles({ pages, defaultCurrent = 0 }: ArticlesProps) {
   }, [isDesktop]);
 
   return (
-    <Layout style={{ minHeight: '100vh', background: '#fff' }}>
+    <Layout style={{ height: "100%", background: "#fff" }}>
       {/* Desktop Sider */}
       {isDesktop && (
         <Sider
           width={SIDER_WIDTH}
           style={{
-            position: 'fixed',
-            top: 'var(--safe-area-top, 0px)',
-            left: 'var(--safe-area-left, 0px)',
-            height: 'calc(100vh - var(--safe-area-top, 0px) - var(--safe-area-bottom, 0px))',
-            overflow: 'hidden',
-            borderRight: '1px solid #f0f0f0',
+            position: "fixed",
+            top: "var(--safe-area-top, 0px)",
+            left: "var(--safe-area-left, 0px)",
+            overflow: "hidden",
+            borderRight: "1px solid #f0f0f0",
             zIndex: 100,
-            background: '#fff',
+            background: "#fff",
           }}
         >
           {siderContent}
@@ -338,15 +359,24 @@ export default function Articles({ pages, defaultCurrent = 0 }: ArticlesProps) {
           onClose={() => setDrawerOpen(false)}
           placement="left"
           width={SIDER_WIDTH}
-          styles={{ body: { padding: 0 }, header: { display: 'none' } }}
+          styles={{
+            body: {
+              padding: 0,
+              paddingTop: "var(--safe-area-top, 0px)",
+              paddingBottom: "var(--safe-area-bottom, 0px)",
+              paddingLeft: "var(--safe-area-left, 0px)",
+              paddingRight: "var(--safe-area-right, 0px)",
+            },
+            header: { display: "none" },
+          }}
           closeIcon={null}
         >
-          <div style={{ position: 'relative', height: '100%' }}>
+          <div style={{ position: "relative", height: "100%" }}>
             <Button
               type="text"
               icon={<CloseOutlined />}
               onClick={() => setDrawerOpen(false)}
-              style={{ position: 'absolute', top: 12, right: 12, zIndex: 10 }}
+              style={{ position: "absolute", top: 12, right: 12, zIndex: 10 }}
             />
             {siderContent}
           </div>
@@ -357,17 +387,16 @@ export default function Articles({ pages, defaultCurrent = 0 }: ArticlesProps) {
       <Layout
         style={{
           marginLeft: isDesktop ? SIDER_WIDTH : 0,
-          minHeight: '100vh',
-          background: '#fff',
-          paddingTop: 'var(--safe-area-top, 0px)',
-          paddingBottom: 'var(--safe-area-bottom, 0px)',
-          paddingLeft: isDesktop ? '0px' : 'var(--safe-area-left, 0px)',
-          paddingRight: 'var(--safe-area-right, 0px)',
+          height: "100%",
+          background: "#fff",
+          paddingBottom: "var(--safe-area-bottom, 0px)",
+          paddingLeft: isDesktop ? "0px" : "var(--safe-area-left, 0px)",
+          paddingRight: "var(--safe-area-right, 0px)",
         }}
       >
         {/* Content — full-width, no padding, no max-width */}
-        <Content style={{ overflowX: 'hidden' }}>
-          <div key={currentPage.path}>
+        <Content style={{ overflowX: "hidden", height: "100%" }}>
+          <div style={{ height: "100%" }} key={currentPage.path}>
             {currentPage.page()}
           </div>
         </Content>

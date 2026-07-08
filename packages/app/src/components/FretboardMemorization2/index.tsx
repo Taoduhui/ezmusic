@@ -600,7 +600,7 @@ export default function FretboardMemorization2() {
       style={{
         display: 'flex',
         flexDirection: 'column',
-        height: '100vh',
+        height: '100%',
         overflow: 'hidden',
       }}
     >

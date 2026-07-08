@@ -68,6 +68,9 @@ importers:
       react-router-dom:
         specifier: ^6.28.0
         version: 6.30.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      tauri-plugin-keepawake-api:
+        specifier: ^0.1.0
+        version: 0.1.0
       workbox-window:
         specifier: ^7.3.0
         version: 7.4.1
@@ -1551,6 +1554,9 @@ packages:
     resolution: {integrity: sha512-tkuFxhvKO/HlGd0VsINF6vHSYH8AF8W0TcNxKDK6JZmrehngFj78pToc8iemtnvwilDjs2G/qSzYFhe9U8q+fw==}
     cpu: [x64]
     os: [win32]
+
+  '@tauri-apps/api@2.11.1':
+    resolution: {integrity: sha512-M2FPuYND2m+wh5hfW9ZpSdxMPdEJovPBWwoHJmwUpysTYNHaOkVFN419m/K0LIgjb/7KU2vBgsUepJWugQCvAA==}
 
   '@tauri-apps/cli-darwin-arm64@2.11.2':
     resolution: {integrity: sha512-+4UZzLt+eOAEQCwgd+TqKgyUJMrvx+BgdXLLaqJYmPqzP+nE6YZr/hY6CWLYGQb8jFn99jEkmC6uA3tNvamA1w==}
@@ -3128,6 +3134,9 @@ packages:
 
   svg-path-parser@1.1.0:
     resolution: {integrity: sha512-jGCUqcQyXpfe38R7RFfhrMyfXcBmpMNJI/B+4CE9/Unkh98UporAc461GTthv+TVDuZXsBx7/WiwJb1Oh4tt4A==}
+
+  tauri-plugin-keepawake-api@0.1.0:
+    resolution: {integrity: sha512-XPUl66zUYiB7kCRxsTdmCoNjFM/++NWCJ4kdTo2NUOgBUa8UVYfayDWnnTzGIQbhT7qNAHs+jgKSjhqSKs/QHA==}
 
   temp-dir@2.0.0:
     resolution: {integrity: sha512-aoBAniQmmwtcKp/7BzsH8Cxzv8OL736p7v1ihGb5e9DJ9kTwGWHrQrVB5+lfVDzfGrdRzXch+ig7LHaY1JTOrg==}
@@ -4834,6 +4843,8 @@ snapshots:
 
   '@rollup/rollup-win32-x64-msvc@4.61.0':
     optional: true
+
+  '@tauri-apps/api@2.11.1': {}
 
   '@tauri-apps/cli-darwin-arm64@2.11.2':
     optional: true
@@ -6759,6 +6770,10 @@ snapshots:
   supports-preserve-symlinks-flag@1.0.0: {}
 
   svg-path-parser@1.1.0: {}
+
+  tauri-plugin-keepawake-api@0.1.0:
+    dependencies:
+      '@tauri-apps/api': 2.11.1
 
   temp-dir@2.0.0: {}
 
