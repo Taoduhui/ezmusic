@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "pnpm --filter @ezmusic/app tauri:android dev",
     "build": "pnpm --filter @ezmusic/app build",
-    "preview": "pnpm --filter @ezmusic/app preview"
+    "preview": "pnpm --filter @ezmusic/app preview",
+    "tauri": "pnpm --filter @ezmusic/app tauri"
   },
   "devDependencies": {
     "@ant-design/icons": "^5.3.7",

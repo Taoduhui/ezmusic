@@ -31,6 +31,9 @@ import {
   DEFAULT_MAX_FREQ_HZ,
   DBG,
   createDebugLogger,
+  applyKeyToPool,
+  COMMON_MAJOR_KEYS,
+  respellNoteWithKey,
 } from '@ezmusic/shared';
 import type { TunableNote, YinOptions } from '@ezmusic/shared';
 import { useSRDrill } from '@ezmusic/spaced-repetition';
@@ -213,6 +216,7 @@ function detectPitch(
   buffer: Float32Array,
   sampleRate: number,
   targetNoteLabel?: string | null,
+  notes: TunableNote[] = TUNABLE_NOTES,
 ): number | null {
   const yinOpts: YinOptions = {
     // Use a more permissive threshold (0.25 vs default 0.15) because
@@ -227,7 +231,7 @@ function detectPitch(
   };
 
   if (targetNoteLabel) {
-    const target = TUNABLE_NOTES.find((n) => n.label === targetNoteLabel);
+    const target = notes.find((n) => n.label === targetNoteLabel);
     if (target) {
       // Constrain the lag search around the EXPECTED period using a fixed
       // ratio.  This mechanically excludes the octave-below subharmonic
@@ -246,8 +250,8 @@ function detectPitch(
  * Find the closest standard note to a detected frequency.
  * Wraps the shared {@link findClosestNote} with the SightReading note list.
  */
-function findClosestNoteForSR(freq: number): TunableNote {
-  return findClosestNote(freq, TUNABLE_NOTES);
+function findClosestNoteForSR(freq: number, notes: TunableNote[] = TUNABLE_NOTES): TunableNote {
+  return findClosestNote(freq, notes);
 }
 
 // ---------------------------------------------------------------------------
@@ -257,7 +261,9 @@ function findClosestNoteForSR(freq: number): TunableNote {
 interface SightReadingSettings {
   fretStart: number;
   fretEnd: number;
+  keySignature: string;
   playSound: boolean;
+  playFeedback: boolean;
   micGain: number;
   selectedDeviceId: string | undefined;
 }
@@ -270,13 +276,15 @@ function loadSettings(): SightReadingSettings {
       return {
         fretStart: parsed.fretStart ?? DEFAULT_FRET_START,
         fretEnd: parsed.fretEnd ?? DEFAULT_FRET_END,
+        keySignature: parsed.keySignature ?? 'C',
         playSound: parsed.playSound ?? true,
+        playFeedback: parsed.playFeedback ?? true,
         micGain: parsed.micGain ?? DEFAULT_MIC_GAIN,
         selectedDeviceId: parsed.selectedDeviceId ?? undefined,
       };
     }
   } catch { /* ignore corrupt data */ }
-  return { fretStart: DEFAULT_FRET_START, fretEnd: DEFAULT_FRET_END, playSound: true, micGain: DEFAULT_MIC_GAIN, selectedDeviceId: undefined };
+  return { fretStart: DEFAULT_FRET_START, fretEnd: DEFAULT_FRET_END, keySignature: 'C', playSound: true, playFeedback: true, micGain: DEFAULT_MIC_GAIN, selectedDeviceId: undefined };
 }
 
 function saveSettings(settings: SightReadingSettings): void {
@@ -292,6 +300,7 @@ interface DashboardProps {
   detectedNote: string | null;
   detectedFreq: number | null;
   targetNote: string | null;
+  keySignature: string;
   volume: number;
   matchState: 'idle' | 'listening' | 'correct' | 'wrong';
   onStart: () => void;
@@ -304,6 +313,7 @@ function Dashboard({
   detectedNote,
   detectedFreq,
   targetNote,
+  keySignature,
   volume,
   matchState,
   onStart,
@@ -322,11 +332,15 @@ function Dashboard({
   }, [matchState]);
 
   const detectedLabel = detectedNote ?? '—';
+  // Respell the sharp-form TUNABLE_NOTES to the active key so the target
+  // note's label (e.g. "Bb4" in F major) can be found for cents display.
   const targetFreq = useMemo(() => {
     if (!targetNote) return null;
-    const note = TUNABLE_NOTES.find((n) => n.label === targetNote);
+    const note = TUNABLE_NOTES.find(
+      (n) => respellNoteWithKey(n.label, keySignature) === targetNote,
+    );
     return note?.freq ?? null;
-  }, [targetNote]);
+  }, [targetNote, keySignature]);
 
   // Cents deviation from target
   const centsOff = useMemo(() => {
@@ -581,7 +595,9 @@ export default function SightReading() {
   const persisted = useMemo(() => loadSettings(), []);
   const [fretStart, setFretStart] = useState(persisted.fretStart);
   const [fretEnd, setFretEnd] = useState(persisted.fretEnd);
+  const [keySignature, setKeySignature] = useState(persisted.keySignature);
   const [playSound, setPlaySound] = useState(persisted.playSound);
+  const [playFeedback, setPlayFeedback] = useState(persisted.playFeedback);
   const [micGain, setMicGain] = useState(persisted.micGain);
 
   // ---- Question state ----
@@ -656,10 +672,22 @@ export default function SightReading() {
   const wrongCooldownRef = useRef(0);
 
   // ---- Derived ----
-  /** The note pool derived from the fretboard within the configured fret range. */
+  /** The note pool derived from the fretboard within the configured fret range,
+   *  transformed by the selected key signature. */
   const notePool = useMemo(
-    () => generateFretboardNotes(fretStart, fretEnd),
-    [fretStart, fretEnd],
+    () => {
+      const natural = generateFretboardNotes(fretStart, fretEnd);
+      return [...new Set(applyKeyToPool(natural, keySignature))];
+    },
+    [fretStart, fretEnd, keySignature],
+  );
+
+  /** Key-aware tunable note list: labels respelled to the selected key's
+   *  spelling convention (e.g. A# → Bb in F major) so pitch-detection
+   *  output matches the notePool's labels. Frequencies are unchanged. */
+  const tunableNotes = useMemo(
+    () => TUNABLE_NOTES.map((n) => ({ ...n, label: respellNoteWithKey(n.label, keySignature) })),
+    [keySignature],
   );
 
   // Ensure SR cards exist for all notes in the pool
@@ -706,7 +734,7 @@ export default function SightReading() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Regenerate when fret range changes
+  // Regenerate when fret range or key signature changes
   useEffect(() => {
     if (autoAdvanceRef.current !== null) {
       window.clearTimeout(autoAdvanceRef.current);
@@ -714,12 +742,12 @@ export default function SightReading() {
     }
     nextQuestion();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fretStart, fretEnd]);
+  }, [fretStart, fretEnd, keySignature]);
 
   // Persist settings whenever they change
   useEffect(() => {
-    saveSettings({ fretStart, fretEnd, playSound, micGain, selectedDeviceId });
-  }, [fretStart, fretEnd, playSound, micGain, selectedDeviceId]);
+    saveSettings({ fretStart, fretEnd, keySignature, playSound, playFeedback, micGain, selectedDeviceId });
+  }, [fretStart, fretEnd, keySignature, playSound, playFeedback, micGain, selectedDeviceId]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -744,6 +772,8 @@ export default function SightReading() {
   isListeningRef.current = isListening;
   const micGainRef = useRef(micGain);
   micGainRef.current = micGain;
+  const tunableNotesRef = useRef(tunableNotes);
+  tunableNotesRef.current = tunableNotes;
 
   // Debug: track recent detection history to diagnose flickering
   const debugFrameRef = useRef(0);
@@ -818,10 +848,10 @@ export default function SightReading() {
     if (frameN % 5 === 0) {
       dbg.debug(`[yin-call] f=${frameN} rms=${rms.toFixed(4)} gate=open → calling YIN`);
     }
-    const detected = detectPitch(buffer, analyser.context.sampleRate, currentNoteRef.current);
+    const detected = detectPitch(buffer, analyser.context.sampleRate, currentNoteRef.current, tunableNotesRef.current);
 
     if (detected !== null && detected >= DEFAULT_MIN_FREQ_HZ && detected <= DEFAULT_MAX_FREQ_HZ) {
-      const closest = findClosestNoteForSR(detected);
+      const closest = findClosestNoteForSR(detected, tunableNotesRef.current);
       setDetectedFreq(parseFloat(detected.toFixed(2)));
       setDetectedNote(closest.label);
 
@@ -977,23 +1007,26 @@ export default function SightReading() {
         setStreak((n) => n + 1);
         setMatchState('correct');
 
-        // Play the tonic walk as feedback for correct answers
-        void playTonicWalk(playNote, currentNote, {
-          startNoteDuration: NOTE_PLAY_DURATION,
-          noteDuration: WALK_NOTE_DURATION,
-        });
+        // Play the tonic walk as feedback for correct answers (respect setting)
+        if (playFeedback) {
+          void playTonicWalk(playNote, currentNote, {
+            startNoteDuration: NOTE_PLAY_DURATION,
+            noteDuration: WALK_NOTE_DURATION,
+          });
+        }
 
         message.success(t('sightReading.correct'));
 
         // Auto-advance after correct answer
         const seqLen = buildTonicWalkSequence(currentNote).length;
-        const playbackMs =
-          seqLen === 1
+        const playbackMs = playFeedback
+          ? seqLen === 1
             ? NOTE_PLAY_DURATION * 1000 + 400
             : (NOTE_PLAY_DURATION * 1000 + WALK_GAP_MS) +
               (seqLen - 2) * (WALK_NOTE_DURATION * 1000 + WALK_GAP_MS) +
               WALK_NOTE_DURATION * 1000 +
-              400;
+              400
+          : 400;
 
         autoAdvanceRef.current = window.setTimeout(() => {
           autoAdvanceRef.current = null;
@@ -1012,12 +1045,13 @@ export default function SightReading() {
         return;
       }
     },
-    [currentNote, answered, playNote, sr.recordReview, t, nextQuestion],
+    [currentNote, answered, playNote, sr.recordReview, t, nextQuestion, playFeedback],
   );
 
-  // Keep handleAnswer ref current (used by processAudio's RAF loop)
   const handleAnswerRef = useRef(handleAnswer);
   handleAnswerRef.current = handleAnswer;
+  const playFeedbackRef = useRef(playFeedback);
+  playFeedbackRef.current = playFeedback;
 
   // ---- Skip (give up on current question) ----
   const handleSkip = useCallback(() => {
@@ -1037,30 +1071,33 @@ export default function SightReading() {
     // Record as wrong in spaced-repetition system
     sr.recordReview(currentNote, false);
 
-    // Play the tonic walk as feedback so the user hears the correct note
-    void playTonicWalk(playNote, currentNote, {
-      startNoteDuration: NOTE_PLAY_DURATION,
-      noteDuration: WALK_NOTE_DURATION,
-    });
+    // Play the tonic walk as feedback so the user hears the correct note (respect setting)
+    if (playFeedback) {
+      void playTonicWalk(playNote, currentNote, {
+        startNoteDuration: NOTE_PLAY_DURATION,
+        noteDuration: WALK_NOTE_DURATION,
+      });
+    }
 
     // Show the correct note name
     message.error(`${t('sightReading.wrong')} ${currentNote}`);
 
     // Auto-advance after feedback playback
     const seqLen = buildTonicWalkSequence(currentNote).length;
-    const playbackMs =
-      seqLen === 1
+    const playbackMs = playFeedback
+      ? seqLen === 1
         ? NOTE_PLAY_DURATION * 1000 + 400
         : (NOTE_PLAY_DURATION * 1000 + WALK_GAP_MS) +
           (seqLen - 2) * (WALK_NOTE_DURATION * 1000 + WALK_GAP_MS) +
           WALK_NOTE_DURATION * 1000 +
-          400;
+          400
+      : 400;
 
     autoAdvanceRef.current = window.setTimeout(() => {
       autoAdvanceRef.current = null;
       nextQuestion();
     }, playbackMs);
-  }, [currentNote, answered, playNote, sr.recordReview, t, nextQuestion]);
+  }, [currentNote, answered, playNote, sr.recordReview, t, nextQuestion, playFeedback]);
 
   // ---- Handlers ----
 
@@ -1218,6 +1255,7 @@ export default function SightReading() {
                 clef="treble"
                 highlightNote={answered ? shiftOctave(currentNote, 1) : undefined}
                 accentColor={isCorrect ? '#22c55e' : '#ef4444'}
+                keySignature={keySignature !== 'C' ? keySignature : undefined}
                 width={staffWidth}
                 height={180}
               />
@@ -1247,6 +1285,7 @@ export default function SightReading() {
         detectedNote={detectedNote}
         detectedFreq={detectedFreq}
         targetNote={currentNote}
+        keySignature={keySignature}
         volume={volume}
         matchState={matchState}
         onStart={startListening}
@@ -1299,6 +1338,33 @@ export default function SightReading() {
             </Text>
           </div>
 
+          {/* Key signature */}
+          <div>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 16,
+                marginBottom: 8,
+              }}
+            >
+              <Text strong>{t('sightReading.keySignature')}</Text>
+              <Select
+                value={keySignature}
+                onChange={setKeySignature}
+                options={[...COMMON_MAJOR_KEYS].map((k) => ({
+                  value: k,
+                  label: k,
+                }))}
+                style={{ minWidth: 100 }}
+                size="small"
+              />
+            </div>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {t('sightReading.keySignatureDesc')}
+            </Text>
+          </div>
+
           {/* Play sound toggle */}
           <div>
             <div
@@ -1314,6 +1380,24 @@ export default function SightReading() {
             </div>
             <Text type="secondary" style={{ fontSize: 12 }}>
               {t('sightReading.playSoundDesc')}
+            </Text>
+          </div>
+
+          {/* Play feedback toggle */}
+          <div>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 16,
+                marginBottom: 8,
+              }}
+            >
+              <Text strong>{t('sightReading.playFeedback')}</Text>
+              <Switch checked={playFeedback} onChange={setPlayFeedback} />
+            </div>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {t('sightReading.playFeedbackDesc')}
             </Text>
           </div>
 

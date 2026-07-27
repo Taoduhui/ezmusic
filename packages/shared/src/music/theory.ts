@@ -416,10 +416,13 @@ export function applyKeyToNote(note: string, key: string): string {
   const direct = scaleNotes.find((s) => Note.pitchClass(s) === pc);
   if (direct) return `${direct}${octave}`;
 
-  // Try enharmonic match for notes that need accidentals (e.g. F → F# in G major)
-  const enhanced = Note.enharmonic(pc);
-  const match = scaleNotes.find((s) => Note.pitchClass(s) === Note.pitchClass(enhanced));
-  if (match) return `${match}${octave}`;
+  // Same letter name with an accidental (e.g. F → F# in G major, B → Bb in F major,
+  // E → Eb in Eb major). Note.enharmonic leaves natural notes unchanged (F → F, not
+  // E#), so it cannot bridge F↔F#; matching by leading letter name correctly finds
+  // the accented scale degree that shares the natural note's letter.
+  const letter = pc.charAt(0);
+  const byLetter = scaleNotes.find((s) => s.charAt(0) === letter);
+  if (byLetter) return `${byLetter}${octave}`;
 
   return note;
 }
@@ -430,6 +433,41 @@ export function applyKeyToPool(
   key: string,
 ): string[] {
   return pool.map((note) => applyKeyToNote(note, key));
+}
+
+/**
+ * Respell a scientific note label to match a key signature's spelling
+ * convention, WITHOUT changing its pitch (frequency).
+ *
+ * Unlike {@link applyKeyToNote} (which maps a natural note to its accented
+ * scale counterpart — F → F# in G major), this keeps the same pitch class
+ * and only changes its spelling: the "A#4" label in F major (whose scale
+ * spells that pitch class as Bb) becomes "Bb4"; "F#4" in G major stays
+ * "F#4". Pitch classes outside the key's scale keep their sharp form.
+ *
+ * Use this to relabel pitch-detection output so it matches the notation
+ * produced by {@link applyKeyToNote} / {@link applyKeyToPool}.
+ */
+export function respellNoteWithKey(note: string, key: string): string {
+  if (key === 'C') return note;
+  const scaleNotes = majorScaleNotes(key);
+  if (scaleNotes.length === 0) return note;
+
+  const match = /^([A-G][#b]?)(\d+)$/.exec(note);
+  if (!match) return note;
+  const pc = match[1];
+  const octave = match[2];
+
+  const noteIdx = chromaticIndex(pc);
+  if (noteIdx < 0) return note;
+
+  // Find a scale note sharing the same chromatic index (enharmonic match)
+  for (const s of scaleNotes) {
+    if (chromaticIndex(s) === noteIdx) {
+      return `${s}${octave}`;
+    }
+  }
+  return note;
 }
 
 // ---------------------------------------------------------------------------
